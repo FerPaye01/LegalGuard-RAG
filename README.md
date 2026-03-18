@@ -290,7 +290,7 @@ LegalGuard RAG implementa los principios de IA Responsable de Microsoft:
 | **Estefany Paola Mamani Gutierrez** | Backend / RAG Engineer | Pipeline RAG, Azure AI Search, embeddings, Risk Scanner, RAGAS |
 | **Oscar Fernando Paye Cahui** | Frontend / Integration | Interfaz Streamlit, deploy Azure, presentación, video demo |
 
-**Universidad**: [Tu universidad]
+
 **Hackathon**: Microsoft Innovation Challenge March 2026
 **Desafío elegido**: Asistente para la reducción de la carga cognitiva
 
