@@ -1,0 +1,8 @@
+# Ignore everything from the original repo
+.agent/
+.gemini/
+
+# Except these files/folders
+!.gitignore
+!README.md
+!src/

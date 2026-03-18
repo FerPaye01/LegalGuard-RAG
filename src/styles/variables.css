@@ -1,0 +1,153 @@
+/**
+ * Variables CSS y Breakpoints para diseño responsive
+ * Mobile-first: estilos base para móvil, media queries para desktop
+ */
+
+:root {
+  /* ═══════════════════════════════════════
+     BREAKPOINTS (usar con min-width)
+     ═══════════════════════════════════════ */
+  /* 
+   * Móvil pequeño: < 375px (base, sin media query)
+   * Móvil: 375px - 767px
+   * Tablet: 768px - 1023px  
+   * Desktop: 1024px - 1919px
+   * Desktop grande: >= 1920px
+   */
+
+  /* ═══════════════════════════════════════
+     SPACING
+     ═══════════════════════════════════════ */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* ═══════════════════════════════════════
+     TYPOGRAPHY
+     ═══════════════════════════════════════ */
+  --font-primary: system-ui, -apple-system, sans-serif;
+  --font-code: 'Fira Code', 'Consolas', monospace;
+
+  --text-xs: 0.75rem;
+  /* 12px */
+  --text-sm: 0.875rem;
+  /* 14px */
+  --text-base: 1rem;
+  /* 16px */
+  --text-lg: 1.125rem;
+  /* 18px */
+  --text-xl: 1.25rem;
+  /* 20px */
+  --text-2xl: 1.5rem;
+  /* 24px */
+  --text-3xl: 2rem;
+  /* 32px */
+
+  /* ═══════════════════════════════════════
+     COLORS (tema claro por defecto)
+     ═══════════════════════════════════════ */
+  --color-background: #FFFFFF;
+  --color-background-secondary: #F3F4F6;
+  --color-text: #1F2937;
+  --color-text-secondary: #6B7280;
+  --color-primary: #3B82F6;
+  --color-primary-hover: #2563EB;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-border: #E5E7EB;
+
+  /* ═══════════════════════════════════════
+     BORDERS & SHADOWS
+     ═══════════════════════════════════════ */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+
+  /* ═══════════════════════════════════════
+     TRANSITIONS
+     ═══════════════════════════════════════ */
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+  --transition-slow: 500ms ease;
+
+  /* ═══════════════════════════════════════
+     CONTAINERS
+     ═══════════════════════════════════════ */
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+  --container-2xl: 1536px;
+}
+
+/* ═══════════════════════════════════════
+   DARK THEME (activar con clase .dark-theme)
+   ═══════════════════════════════════════ */
+.dark-theme {
+  --color-background: #111827;
+  --color-background-secondary: #1F2937;
+  --color-text: #F9FAFB;
+  --color-text-secondary: #9CA3AF;
+  --color-border: #374151;
+}
+
+/* ═══════════════════════════════════════
+   RESPONSIVE UTILITIES
+   ═══════════════════════════════════════ */
+
+/* Ocultar en móvil */
+.desktop-only {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .desktop-only {
+    display: block;
+  }
+
+  .mobile-only {
+    display: none;
+  }
+}
+
+/* Contenedor responsive */
+.container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--space-md);
+  padding-right: var(--space-md);
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: var(--container-md);
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: var(--container-lg);
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    max-width: var(--container-xl);
+  }
+}
+
+@media (min-width: 1920px) {
+  .container {
+    max-width: var(--container-2xl);
+  }
+}
