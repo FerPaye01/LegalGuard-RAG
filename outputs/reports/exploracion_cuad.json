@@ -1,0 +1,65 @@
+{
+  "total_contratos": 511,
+  "campos_base": [
+    "document_name",
+    "context",
+    "id",
+    "title"
+  ],
+  "clausulas_detectadas": [
+    "pdf"
+  ],
+  "total_clausulas": 1,
+  "ejemplos": [
+    {
+      "indice": 0,
+      "titulo": "",
+      "longitud_texto": 0,
+      "clausulas_presentes": [],
+      "clausulas_ausentes": [
+        "pdf"
+      ],
+      "score_riesgo": 100
+    },
+    {
+      "indice": 1,
+      "titulo": "",
+      "longitud_texto": 0,
+      "clausulas_presentes": [],
+      "clausulas_ausentes": [
+        "pdf"
+      ],
+      "score_riesgo": 100
+    },
+    {
+      "indice": 2,
+      "titulo": "",
+      "longitud_texto": 0,
+      "clausulas_presentes": [],
+      "clausulas_ausentes": [
+        "pdf"
+      ],
+      "score_riesgo": 100
+    },
+    {
+      "indice": 3,
+      "titulo": "",
+      "longitud_texto": 0,
+      "clausulas_presentes": [],
+      "clausulas_ausentes": [
+        "pdf"
+      ],
+      "score_riesgo": 100
+    },
+    {
+      "indice": 4,
+      "titulo": "",
+      "longitud_texto": 0,
+      "clausulas_presentes": [],
+      "clausulas_ausentes": [
+        "pdf"
+      ],
+      "score_riesgo": 100
+    }
+  ]
+}
