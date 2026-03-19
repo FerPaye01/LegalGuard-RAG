@@ -6,3 +6,6 @@
 !.gitignore
 !README.md
 !src/
+.env
+.venv/
+__pycache__/
