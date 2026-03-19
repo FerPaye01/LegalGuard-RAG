@@ -1,0 +1,15 @@
+pydantic-settings
+presidio-analyzer
+presidio-anonymizer
+azure-ai-documentintelligence
+azure-core
+langchain-openai
+langchain-experimental
+langchain-text-splitters
+tenacity
+azure-search-documents==11.4.0b8
+langgraph
+langchain-core
+langchain-azure-dynamic-sessions
+pandas
+numpy
