@@ -1,0 +1,30 @@
+2026-03-23 13:58:54,346 | LegalGuard | INFO     | [Sistema] Iniciando prueba de verificación
+2026-03-23 13:58:54,457 | LegalGuard | INFO     | 🚀 [RAG] >>> Recuperando documentos de prueba
+2026-03-23 13:58:54,463 | LegalGuard | WARNING  | [Config] Detectada configuración por defecto
+2026-03-23 13:58:54,468 | LegalGuard | ERROR    | [API] Error simulado de conexión
+2026-03-23 21:06:57,936 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-24 11:06:03,032 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-24 13:16:40,077 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-24 13:22:49,430 | LegalGuard | INFO     | [api:sse] Iniciando flujo SSE para: ¿Cuáles son las obligaciones o penalidades para el...
+2026-03-24 13:22:49,653 | LegalGuard | INFO     | 🚀 [nodo: classify_intent] >>> Evaluando intención del usuario
+2026-03-24 13:22:49,826 | LegalGuard | ERROR    | [api:sse] 5 validation errors for Settings
+azure_storage_connection_string
+  Field required [type=missing, input_value={'azure_openai_endpoint':....azurecontainerapps.io'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+azure_content_safety_endpoint
+  Field required [type=missing, input_value={'azure_openai_endpoint':....azurecontainerapps.io'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+azure_content_safety_key
+  Field required [type=missing, input_value={'azure_openai_endpoint':....azurecontainerapps.io'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+azure_openai_chat_deployment
+  Extra inputs are not permitted [type=extra_forbidden, input_value='gpt-4o', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+azure_container_app_session_pool
+  Extra inputs are not permitted [type=extra_forbidden, input_value='https://tu_pool.xxx.azurecontainerapps.io', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden
+2026-03-24 13:31:52,051 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-24 22:15:03,747 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-24 22:41:11,322 | LegalGuard | INFO     | [api:sse] Iniciando flujo SSE para: ¿Cuáles son las obligaciones o penalidades para el...
+2026-03-24 22:41:11,491 | LegalGuard | INFO     | 🚀 [nodo: classify_intent] >>> Evaluando intención del usuario
+2026-03-24 22:41:18,829 | LegalGuard | ERROR    | [api:sse] Connection error.

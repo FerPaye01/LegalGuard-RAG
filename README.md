@@ -24,8 +24,17 @@
 - [IA Responsable](#-ia-responsable)
 - [Equipo](#-equipo)
 - [Desafío del hackathon](#-desafío-del-hackathon)
+- [📈 Estado del Proyecto (status.md)](status.md)
 
 ---
+
+## 🚀 Estado del Proyecto (Demo-Ready)
+
+**Última actualización:** 2026-03-24
+El proyecto se encuentra en fase **MVP Finalizado y Funcional**. Se han resuelto todos los cuellos de botella técnicos relacionados con la orquestación (LangGraph), la comunicación (SSE) y la interfaz "God Mode".
+
+> [!TIP]
+> Para ver un reporte técnico detallado del progreso, hitos y solución de errores comunes, consulta el archivo [status.md](status.md).
 
 ## 🎯 Sobre el proyecto
 
@@ -67,6 +76,12 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 ### 🌐 Multi-dominio
 - Dominio legal: contratos comerciales, NDAs, acuerdos de compliance
 - Dominio salud: procedimientos operativos estándar (SOPs) de la OMS
+
+### 🎨 God Mode UI (Innovation & UX)
+- **Interfaz Dividida (XAI)**: Visualización de PDF al 40% y Chat al 60% para trazabilidad total.
+- **🌙 Modo Noche Dinámico**: Cambio de tema instantáneo con paleta *Midnight Slate*.
+- **Glassmorphism & Animaciones**: Micro-interacciones suaves que guían al usuario.
+- **Orquestación Experta**: Personas configurables (Legal, Financiero, Orchestrator) vía `system_prompts.yaml`.
 
 ---
 
@@ -205,8 +220,14 @@ python src/ingestion.py --file data/who_sop.pdf --domain health
 
 ### 5. Ejecutar la aplicación
 
+Para que el sistema funcione, levanta primero el backend y luego el frontend:
+
 ```bash
-streamlit run app.py
+# Terminal 1: Servidor de Orquestación (Backend)
+uvicorn src.api.fastapi_server:app --reload --port 8000  
+
+# Terminal 2: Interfaz de Usuario (Frontend)
+streamlit run src/frontend/streamlit_app.py
 ```
 
 Abre tu navegador en `http://localhost:8501`

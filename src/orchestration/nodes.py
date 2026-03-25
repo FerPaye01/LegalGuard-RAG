@@ -11,6 +11,7 @@ from src.config.settings import get_settings
 from src.retrieval.azure_search_client import _get_search_client
 from src.orchestration.state import LegalGuardState
 from src.privacy.presidio_engine import deanonymize_text
+from src.config.prompts import get_prompt
 from src.utils.logger import log_sequence, log_warn, log_error, log_info
 
 
@@ -32,7 +33,8 @@ def rewrite_query(state: LegalGuardState):
     last_message = state["messages"][-1].content
     llm = _get_llm()
     
-    prompt = f"Reescribe esta pregunta para búsqueda vectorial en contratos legales. Extrae solo las palabras clave importantes: '{last_message}'"
+    prompt_template = get_prompt("query_rewriter")
+    prompt = f"{prompt_template}\n\nPregunta Original: '{last_message}'"
     response = llm.invoke([HumanMessage(content=prompt)])
     
     return {
@@ -118,13 +120,8 @@ def generate_response(state: LegalGuardState):
     context = "\n\n".join([d["content"] for d in state.get("context_docs", [])])
     question = state["messages"][-1].content
     
-    system_prompt = f"""Estarás respondiendo preguntas sobre contratos legales basados EXCLUSIVAMENTE en el siguiente contexto.
-    No uses conocimientos externos. Algunas entidades (Nombres, DNI) aparecerán como hashes como <PERSON> o similar. 
-    Usa exactamente los mismos hashes en tu respuesta.
-    
-    CONTEXTO:
-    {context}
-    """
+    system_prompt_base = get_prompt("legal_analyst")
+    system_prompt = f"{system_prompt_base}\n\nCONTEXTO:\n{context}"
     
     llm = _get_llm()
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=question)]
@@ -168,10 +165,7 @@ def classify_intent(state: LegalGuardState):
     log_sequence("nodo: classify_intent", "Evaluando intención del usuario")
     question = state["messages"][-1].content
     
-    system_prompt = """Eres un enrutador estructurado. Responde SOLO con una de las siguientes tres palabras:
-    - "CALCULO": Si la pregunta implica sumar, descontar fechas, o manipular tablas financieras explícitamente.
-    - "GENERAL": Si es un saludo tipo hola, adiós, o una pregunta que no requiere contratos.
-    - "LEGAL": Para todo lo demás (búsqueda de cláusulas, contratos, nombres, ubicaciones)."""
+    system_prompt = get_prompt("orchestrator")
     
     llm = _get_llm()
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=question)]

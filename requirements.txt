@@ -7,9 +7,15 @@ langchain-openai
 langchain-experimental
 langchain-text-splitters
 tenacity
-azure-search-documents==11.4.0b8
+azure-search-documents==11.4.0
 langgraph
 langchain-core
 langchain-azure-dynamic-sessions
 pandas
 numpy
+streamlit
+fastapi
+uvicorn
+sse-starlette
+PyYAML
+httpx
