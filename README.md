@@ -149,6 +149,8 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 | [ContractNLI (Stanford)](https://stanfordnlp.github.io/contract-nli/) | Métricas de implicación/contradicción | 607 NDAs |
 | [WHO SOP PDF](https://platform.who.int/docs/default-source/mca-documents/) | Multi-dominio salud | 1 documento |
 
+> **Nota para evaluación**: Para la ingesta y manipulación local de los datasets sin saturar el repo, utilizamos los scripts modulares `descargardatos.py`, `descargarSynthetic.py` y `explorardatos.py` incluidos en la raíz.
+
 ---
 
 ## 🚀 Instalación

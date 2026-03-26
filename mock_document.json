@@ -1,0 +1,6 @@
+{
+    "id": "PROYECTO-HACK-001",
+    "titulo": "Prueba de Ingesta Vectorial",
+    "contenido": "Este es un documento de prueba para validar que el sistema de búsqueda vectorial en East US 2 está recibiendo correctamente los datos de LegalGuard.",
+    "categoria": "Test"
+}
