@@ -1,10 +1,12 @@
 import os
 import time
 import hashlib
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient
 from openai import AzureOpenAI
 from azure.core.credentials import AzureKeyCredential
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
@@ -51,6 +53,10 @@ def create_index_if_not_exists():
         SearchableField(name="source_file", type=SearchFieldDataType.String, filterable=True),
         SearchableField(name="content", type=SearchFieldDataType.String),
         SimpleField(name="file_hash", type=SearchFieldDataType.String, filterable=True),
+        # Metadatos enriquecidos (Document Selector Pro)
+        SimpleField(name="upload_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
+        SearchableField(name="doc_summary", type=SearchFieldDataType.String),
+        SearchableField(name="doc_entities", type=SearchFieldDataType.String),
         SearchField(
             name="content_vector",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -127,15 +133,87 @@ def smart_chunking(markdown_text):
     final_chunks = text_splitter.split_documents(md_header_splits)
     return [chunk.page_content for chunk in final_chunks]
 
+def generate_doc_metadata(markdown_text: str) -> dict:
+    """Genera resumen y entidades clave del documento usando GPT-4o-mini en la ingesta."""
+    try:
+        # Usamos los primeros 6000 chars para el contexto del resumen (equilibrio costo/calidad)
+        context = markdown_text[:6000]
+        response = oai_client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o-mini"),
+            messages=[{
+                "role": "user",
+                "content": f"""Analiza este texto de un contrato legal y responde SOLO en JSON con este formato exacto:
+{{"summary": "resumen de 2-3 líneas del propósito del documento", "entities": "lista de entidades clave separadas por comas: partes involucradas, montos, fechas relevantes"}}
+
+Texto del contrato:
+{context}"""
+            }],
+            response_format={"type": "json_object"},
+            max_tokens=300,
+            temperature=0.1
+        )
+        import json
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "doc_summary": result.get("summary", ""),
+            "doc_entities": result.get("entities", "")
+        }
+    except Exception as e:
+        log_warn("No se pudo generar metadata enriquecida", str(e))
+        return {"doc_summary": "", "doc_entities": ""}
+
+def get_blob_sas_url(filename: str, expiry_hours: int = 1) -> str:
+    """Genera una URL firmada (SAS) para abrir el PDF en nueva pestaña."""
+    try:
+        conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        if not conn_str:
+            return ""
+        
+        blob_service = BlobServiceClient.from_connection_string(conn_str)
+        account_name = blob_service.account_name
+        account_key = blob_service.credential.account_key
+        
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=CONTAINER_NAME,
+            blob_name=filename,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(timezone.utc) + timedelta(hours=expiry_hours)
+        )
+        return f"https://{account_name}.blob.core.windows.net/{CONTAINER_NAME}/{filename}?{sas_token}"
+    except Exception as e:
+        log_error("Error generando SAS URL", e)
+        return ""
+
+def get_available_documents_enriched() -> list:
+    """Devuelve lista completa con metadatos enriquecidos para el Document Selector Pro."""
+    try:
+        results = search_client.search(
+            search_text="*",
+            select=["source_file", "upload_date", "doc_summary", "doc_entities"],
+            top=1000
+        )
+        # Deduplicar por nombre de archivo (un doc tiene muchos chunks)
+        seen = {}
+        for doc in results:
+            fname = doc.get("source_file", "")
+            if fname and fname not in seen:
+                seen[fname] = {
+                    "filename": fname,
+                    "upload_date": doc.get("upload_date", ""),
+                    "summary": doc.get("doc_summary", "Sin resumen disponible."),
+                    "entities": doc.get("doc_entities", "")
+                }
+        return sorted(seen.values(), key=lambda x: x["upload_date"], reverse=True)
+    except Exception as e:
+        log_error("Error recuperando documentos enriquecidos", e)
+        return []
+
 def get_available_documents():
     """Devuelve la lista única de archivos cargados en el índice de Azure sin cargar el motor de IA."""
     try:
-        # Usamos el search_client ya instanciado en este módulo
-        results = search_client.search(
-            search_text="*",
-            select=["source_file"],
-            top=1000
-        )
+        results = search_client.search(search_text="*", select=["source_file"], top=1000)
         unique_files = sorted(list(set(doc["source_file"] for doc in results if doc.get("source_file"))))
         return unique_files
     except Exception as e:
@@ -144,10 +222,15 @@ def get_available_documents():
 
 def index_document_from_text(filename: str, markdown_text: str, file_hash: str = None):
     """
-    Indexa un documento directamente desde su texto markdown (para la UI).
-    Si se provee file_hash, lo adjunta a cada chunk para auditoría.
+    Indexa un documento desde su texto markdown.
+    Genera metadatos enriquecidos (resumen, entidades) via LLM durante la ingesta.
     """
     create_index_if_not_exists()
+    
+    # Generación de metadatos en la ingesta (una sola llamada LLM por documento)
+    log_sequence("Generando metadatos enriquecidos", filename)
+    metadata = generate_doc_metadata(markdown_text)
+    upload_date = datetime.now(timezone.utc).isoformat()
     
     chunks = smart_chunking(markdown_text)
     log_info(f"Indexando {filename}: particionado en {len(chunks)} trozos.")
@@ -161,7 +244,10 @@ def index_document_from_text(filename: str, markdown_text: str, file_hash: str =
             "id": safe_id,
             "source_file": filename,
             "content": chunk_text,
-            "content_vector": vector
+            "content_vector": vector,
+            "upload_date": upload_date,
+            "doc_summary": metadata["doc_summary"],
+            "doc_entities": metadata["doc_entities"]
         }
         if file_hash:
             doc["file_hash"] = file_hash

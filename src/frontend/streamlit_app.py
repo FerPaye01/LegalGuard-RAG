@@ -9,15 +9,18 @@ import json
 import asyncio
 import tempfile
 from typing import Generator
+from datetime import datetime, timezone
 
 # Import the Document Intelligence Script
 from azure.storage.blob import BlobServiceClient
 from src.ingestion.document_processor import extract_document_hybrid
-from src.ingestion.pipeline import index_document_from_text
+from src.ingestion.pipeline import (
+    index_document_from_text, compute_file_hash, check_duplicate_by_hash,
+    get_available_documents_enriched, get_blob_sas_url
+)
 from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
 from src.metrics import run_evaluation
-from src.ingestion.pipeline import compute_file_hash, check_duplicate_by_hash
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -60,6 +63,10 @@ if "md_content" not in st.session_state:
 
 # Iniciar agente de forma perezosa (Solo cuando se necesite en el chat o scanner)
 # st.session_state.agent = get_legal_agent()  <-- Eliminado de la carga global para velocidad
+
+# Estado para documentos seleccionados en el Document Selector Pro
+if "selected_docs" not in st.session_state:
+    st.session_state.selected_docs = []
 
 # 3. Toggle de Modo Noche (Sidebar) - Debe ir antes del CSS
 st.session_state.dark_mode = st.sidebar.toggle("🌙 Modo Noche", value=st.session_state.dark_mode)
@@ -330,23 +337,108 @@ with st.sidebar:
     # 4. Sidebar: Configuración y Status
     st.header("⚙️ Configuración")
     
-    # Filtro de Documentos (Innovación de Orden)
-    st.subheader("🔍 Filtro de Memoria")
+    # --- Document Selector Pro ---
+    st.subheader("🗂️ Documentos Activos")
     
+    # Mostrar documentos seleccionados 
+    if st.session_state.selected_docs:
+        st.success(f"✅ {len(st.session_state.selected_docs)} doc(s) seleccionado(s)")
+        for doc in st.session_state.selected_docs:
+            st.caption(f"• {doc}")
+    else:
+        st.info("🌐 Búsqueda Global (todos los docs)")
+
+    # --- Modal Emergente ---
     @st.cache_data(ttl=60)
-    def get_doc_list():
-        # Usamos la función ligera del pipeline para no cargar el agente todavía
-        from src.ingestion.pipeline import get_available_documents
-        return get_available_documents()
+    def get_doc_list_enriched():
+        return get_available_documents_enriched()
+
+    @st.dialog("🗂️ Gestionar Documentos", width="large")
+    def show_document_selector():
+        all_docs = get_doc_list_enriched()
+        if not all_docs:
+            st.warning("No hay documentos en el índice. Sube uno primero.")
+            return
         
-    available_docs = get_doc_list()
-    selected_docs = st.sidebar.multiselect(
-        "Consultar solo en:",
-        options=available_docs,
-        default=[],
-        help="Si no seleccionas ninguno, se buscará en todo el índice por defecto."
-    )
-    
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        recent_docs = [d for d in all_docs if d.get("upload_date", "")[:10] == today]
+        base_docs = all_docs  # Todos los documentos
+
+        # INICIO: selección temporal dentro del modal
+        temp_selected = list(st.session_state.selected_docs)
+
+        tab_recent, tab_all = st.tabs([
+            f"📅 Recientes ({len(recent_docs)})",
+            f"🗄️ Base de Conocimiento ({len(base_docs)})"
+        ])
+
+        def render_doc_cards(docs, key_prefix):
+            """Renderiza tarjetas de documentos con checkboxes, metadata y botón visor."""
+            if not docs:
+                st.info("💭 No hay documentos en esta categoría.")
+                return
+            
+            for doc in docs:
+                fname = doc["filename"]
+                col_check, col_info, col_eye = st.columns([0.5, 8, 1])
+                
+                is_selected = fname in temp_selected
+                checked = col_check.checkbox("", value=is_selected, key=f"{key_prefix}_{fname}")
+                
+                if checked and fname not in temp_selected:
+                    temp_selected.append(fname)
+                elif not checked and fname in temp_selected:
+                    temp_selected.remove(fname)
+                
+                with col_info:
+                    st.markdown(f"**📄 {fname}**")
+                    summary = doc.get("summary", "")
+                    entities = doc.get("entities", "")
+                    upload_date = doc.get("upload_date", "")[:10] or "Fecha no disponible"
+                    
+                    if summary:
+                        st.caption(f"ℹ️ {summary}")
+                    if entities:
+                        # Mostrar entidades como tags visuales
+                        entity_tags = " • ".join(entities.split(",")[:5])
+                        st.markdown(f"<span style='font-size:0.75rem; color:#64748B;'>🏷️ {entity_tags}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='font-size:0.7rem; color:#94A3B8;'>📅 Subido: {upload_date}</span>", unsafe_allow_html=True)
+                
+                # Botón ojo: genera SAS URL y abre en nueva pestaña
+                sas_url = get_blob_sas_url(fname)
+                if sas_url:
+                    col_eye.link_button("👁️", sas_url, help="Abrir PDF en nueva pestaña")
+                
+                st.divider()
+
+        with tab_recent:
+            render_doc_cards(recent_docs, "recent")
+        
+        with tab_all:
+            render_doc_cards(base_docs, "all")
+        
+        # Botón de confirmación
+        st.markdown("---")
+        col_clear, col_confirm = st.columns([1, 2])
+        
+        if col_clear.button("🗑️ Limpiar Selección", use_container_width=True):
+            st.session_state.selected_docs = []
+            st.rerun()
+        
+        if col_confirm.button(
+            f"✅ Usar {len(temp_selected)} documento(s) en la consulta RAG",
+            type="primary",
+            use_container_width=True,
+            disabled=False
+        ):
+            st.session_state.selected_docs = temp_selected
+            st.rerun()
+
+    if st.button("🗂️ Gestionar Documentos", use_container_width=True):
+        show_document_selector()
+
+    selected_docs = st.session_state.selected_docs
+
     st.divider()
     
     # Documento actual

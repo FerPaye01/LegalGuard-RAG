@@ -533,6 +533,7 @@ A continuación se detalla el cumplimiento de los requerimientos de las tarjetas
 | **Capacidad Multi-dominio** | `src/agent.py` | Demostrada con el SOP de la OMS; el sistema responde con citas precisas sobre salud sin cambios en el código core. |
 | **Azure Monitor** | `src/utils/logger.py` | Integración de **Application Insights** para telemetría distribuida y observabilidad de errores. |
 | **Despliegue Azure** | `deployment/` | Preparación de archivos de configuración (`README_AZURE.md`) para el deploy automático en App Service. |
+| **Document Selector Pro** | `src/frontend/streamlit_app.py` | Implementación de modal emergente con metadatos enriquecidos y visor PDF integrado. |
 
 ---
 **¿Por qué logramos estos hitos?** 
@@ -644,3 +645,98 @@ A partir de este hito, el flujo de actualización es automático:
 2. **Git Push**: `git push origin main`.
 3. **Auto-Build**: GitHub Actions construye la imagen y la sube al ACR.
 4. **Auto-Deploy**: Azure detecta la nueva imagen y reinicia el servicio con la versión actualizada.
+46: 
+47: ---
+48: 
+49: ## 🚀 Hito 7: Document Selector Pro (Gestión Documental Avanzada)
+50: 
+51: ### Objetivo
+52: Transformar el selector de documentos de un `multiselect` básico en una herramienta de trabajo con modal emergente, metadatos enriquecidos y acceso directo a los PDFs.
+53: 
+54: ### Decisiones de Diseño Confirmadas
+55: 
+56: | Característica | Decisión | Razón |
+57: |---|---|---|
+58: | UI de Selección | **Modal / Diálogo Streamlit** | Mayor impacto visual |
+| Metadatos (resumen, entidades) | **Generados en la ingesta** | Sin spinners al abrir tarjeta |
+| Almacenamiento de metadatos | **Campos nuevos en Azure Search** | Sin infraestructura adicional |
+| Visor PDF | **Botón 👁️ → nueva pestaña (SAS URL)** | Sin problemas de CORS/IFRAME |
+| "Recientes" | **Filtro por `upload_date` de hoy** | Simple y efectivo |
+| "Última consultado" | ❌ **ELIMINADO** | No aporta valor al jurado |
+
+---
+
+### Proposed Changes
+
+#### Capa 1: Esquema de Azure AI Search
+
+Añadir 3 campos nuevos al índice (filtrables/buscables) en `src/ingestion/pipeline.py`:
+
+```python
+SimpleField(name="upload_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
+SearchableField(name="doc_summary", type=SearchFieldDataType.String),       # Resumen 3 líneas (LLM)
+SearchableField(name="doc_entities", type=SearchFieldDataType.String),      # Entidades clave (LLM)
+```
+
+#### Capa 2: Enriquecimiento en Ingesta
+
+Nueva función `generate_doc_metadata(text)` que llama al LLM para generar:
+- **`doc_summary`**: Resumen de 3 líneas del contrato.
+- **`doc_entities`**: Lista de entidades: partes, montos, fechas. 
+- **`upload_date`**: `datetime.utcnow().isoformat()` al momento de la ingesta.
+
+Estos 3 campos se adjuntan a **todos** los chunks del documento durante `index_document_from_text()`.
+
+#### Capa 3: Acceso al PDF (SAS Token)
+
+Nueva función `get_blob_sas_url(filename)` que genera una URL firmada con 1hr de expiración para abrir en una pestaña. Solo requiere la `AZURE_STORAGE_CONNECTION_STRING` ya existente.
+
+#### Capa 4: UI del Modal
+
+Se reemplazó el `multiselect` del sidebar por un botón `🗂️ Gestionar Documentos` que abre un `st.dialog()`.
+
+El modal tiene 2 secciones con tabs:
+1. **📅 Recientes** → `upload_date >= hoy`
+2. **🗄️ Base de Conocimiento** → Todos los documentos
+
+Cada documento muestra:
+- `☑️` Checkbox de selección
+- Nombre del archivo
+- `📋` Tags de entidades
+- Resumen en 1 línea
+- `👁️` Botón que abre la SAS URL en nueva pestaña
+
+---
+
+### Flujo Completo
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant UI as Streamlit UI
+    participant Search as Azure Search
+    participant Blob as Azure Blob
+
+    U->>UI: Click "🗂️ Gestionar Documentos"
+    UI->>Search: Busca todos los docs + metadatos (summary, entities, upload_date)
+    Search-->>UI: Lista de documentos enriquecidos
+    UI->>U: Modal con 2 Tabs (Recientes / Base de Conocimiento)
+    U->>UI: Marca checkboxes
+    U->>Blob: Click 👁️ → get_blob_sas_url() → nueva pestaña
+    U->>UI: Click "Usar seleccionados"
+    UI->>UI: Actualiza st.session_state.selected_docs
+    UI-->>U: Chat habilitado con contexto acotado
+```
+
+---
+
+### Verification Plan
+
+#### Automated
+- Ejecutar ingesta de un PDF y verificar que el índice tiene `doc_summary`, `doc_entities`, `upload_date` poblados.
+- Verificar que la SAS URL abre el PDF en el navegador.
+
+#### Manual (Demo)
+1. Abrir modal → verificar 2 tabs.
+2. Seleccionar `BT_NDA.pdf` → confirmar → preguntar sobre cláusula.
+3. Click 👁️ → verificar que el PDF abre en pestaña nueva.

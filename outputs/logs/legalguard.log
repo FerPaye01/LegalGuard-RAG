@@ -186,3 +186,5 @@ have under this ...]
 2026-03-27 14:29:17,031 | LegalGuard | INFO     | [Procesando: Basic-Non-Disclosure-Agreement.pdf]
 2026-03-27 14:29:17,699 | LegalGuard | INFO     | [✅ Actualizados 4 fragmentos de Basic-Non-Disclosure-Agreement.pdf con hash efff2dbbb2...]
 2026-03-27 14:29:17,708 | LegalGuard | INFO     | 🚀 [BACKFILL COMPLETADO] >>> Integridad SHA256 garantizada.
+2026-03-27 15:54:00,599 | LegalGuard | INFO     | 🚀 [Sincronizando esquema de índice en AI Search] >>> contratos-index
+2026-03-27 15:54:02,213 | LegalGuard | INFO     | [✅ Esquema del índice 'contratos-index' sincronizado.]
