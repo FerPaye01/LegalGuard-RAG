@@ -58,8 +58,8 @@ if "dark_mode" not in st.session_state:
 if "md_content" not in st.session_state:
     st.session_state.md_content = None
 
-# Iniciar agente desde el recurso cacheado
-st.session_state.agent = get_legal_agent()
+# Iniciar agente de forma perezosa (Solo cuando se necesite en el chat o scanner)
+# st.session_state.agent = get_legal_agent()  <-- Eliminado de la carga global para velocidad
 
 # 3. Toggle de Modo Noche (Sidebar) - Debe ir antes del CSS
 st.session_state.dark_mode = st.sidebar.toggle("🌙 Modo Noche", value=st.session_state.dark_mode)
@@ -87,9 +87,10 @@ else:
     bubble_user = "#F0Fdf4"
     bubble_ai = "#FFFFFF"
     text_secondary = "#64748B"
-
-# 5. Estilos Personalizados y CSS Inyectado para Tablas Híbridas
-st.markdown(f"""
+# 5. Optimización de Estilos (Cacheado)
+@st.cache_data
+def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_color, sidebar_bg, input_bg, bubble_user, bubble_ai, text_secondary):
+    return f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
@@ -103,11 +104,35 @@ st.markdown(f"""
         color: {color_text} !important;
     }}
 
-    /* Estilos inyectados para Tablas HTML originadas de Doc Intelligence */
+    /* Estilo Sidebar */
+    [data-testid="stSidebar"] {{
+        background-color: {sidebar_bg} !important;
+        border-right: 1px solid {border_color};
+    }}
+
+    /* Chat Bubbles */
+    [data-testid="stChatMessage"] {{
+        background-color: {bg_chat} !important;
+        border: 1px solid {border_color};
+        border-radius: 12px;
+        margin-bottom: 15px;
+        padding: 15px;
+    }}
+
+    /* Header e Inputs */
+    .main-header {{
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: linear-gradient(90deg, #3B82F6 0%, #2DD4BF 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 10px;
+    }}
+
+    /* Tables support for Doc Intel */
     table {{
         width: 100%;
         border-collapse: collapse;
-        margin-top: 1rem;
         margin-bottom: 1.5rem;
         background-color: {input_bg};
         border-radius: 8px;
@@ -213,7 +238,11 @@ st.markdown(f"""
         to {{ opacity: 1; transform: translateY(0); }}
     }}
 </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(get_custom_css(
+    st.session_state.dark_mode, bg_app, bg_chat, color_text, color_header, border_color, sidebar_bg, input_bg, bubble_user, bubble_ai, text_secondary
+), unsafe_allow_html=True)
 
 # 6. Backend Logic (SSE)
 async def stream_from_backend(question: str):
@@ -306,7 +335,9 @@ with st.sidebar:
     
     @st.cache_data(ttl=60)
     def get_doc_list():
-        return st.session_state.agent.search_engine.get_available_documents()
+        # Usamos la función ligera del pipeline para no cargar el agente todavía
+        from src.ingestion.pipeline import get_available_documents
+        return get_available_documents()
         
     available_docs = get_doc_list()
     selected_docs = st.sidebar.multiselect(
@@ -341,28 +372,56 @@ with col_pdf:
     bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
     color_info = "#3B82F6" if st.session_state.dark_mode else "#0369A1"
     
-    # Si tenemos el markdown ya extraído, no volvemos a llamar a Azure
-    if st.session_state.md_content:
+    # Prioridad 1: Documento recién subido
+    # Prioridad 2: Documento seleccionado en el filtro (Vista previa desde el índice)
+    display_content = st.session_state.md_content
+    
+    if not display_content and selected_docs:
+        # Recuperar una vista previa rápida de los primeros fragmentos del primer doc seleccionado
+        target_doc = selected_docs[0]
+        try:
+            # Importación local para evitar dependencias circulares
+            from azure.search.documents import SearchClient
+            from azure.core.credentials import AzureKeyCredential
+            
+            s_client = SearchClient(
+                endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+                index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index"),
+                credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY"))
+            )
+            
+            results = list(s_client.search(
+                search_text="*",
+                filter=f"source_file eq '{target_doc}'",
+                top=5,
+                select=["content"]
+            ))
+            if results:
+                display_content = f"### 🔍 Vista previa de `{target_doc}` (desde Memoria)\n\n"
+                display_content += "\n\n".join([r["content"] for r in results])
+                display_content += "\n\n---\n*Nota: Esta es una vista previa del índice. Puedes chatear con el documento completo en el panel derecho.*"
+        except Exception as e:
+            log_error("Error recuperando vista previa ligera", e)
+
+    if display_content:
         st.markdown(f"""
             <div style="background-color: {bg_info}; border-left: 4px solid #3B82F6; padding: 12px; border-radius: 8px; font-size: 0.9rem; color: {color_info}; margin-bottom: 20px;">
-                💡 Texto híbrido validado. El LLM ahora puede interactuar con datos precisos.
+                💡 Modo Interactivo: El LLM está consultando el contexto de {'ingesta actual' if st.session_state.md_content else 'memoria seleccionada'}.
             </div>
         """, unsafe_allow_html=True)
 
-        # Renderizar la data final. Gracias a unsafe_allow_html, las tablas <table> tendrán formato del bloque CSS inyectado arriba.
-        st.markdown(st.session_state.md_content, unsafe_allow_html=True)
+        st.markdown(display_content, unsafe_allow_html=True)
         
-        st.markdown("---")
-        # El "Toque de la Opción C" solicitado por el usuario para debugear en la Demo
-        with st.expander("🛠️ Ver Código Fuente (Raw Markdown & HTML)"):
-            st.code(st.session_state.md_content, language="markdown")
-
+        if st.session_state.md_content:
+            st.markdown("---")
+            with st.expander("🛠️ Ver Código Fuente (Raw Markdown & HTML)"):
+                st.code(st.session_state.md_content, language="markdown")
     else:
         st.markdown(f"""
             <div class="pdf-viewer-placeholder">
                 <div style="text-align: center;">
-                    <h4 style="margin: 0; color: {color_text};">Esperando Ingesta</h4>
-                    <p style="font-size: 0.9rem; margin-top: 5px; color: {text_secondary};">Sube el PDF en la barra lateral para su re-construcción semántica.</p>
+                    <h4 style="margin: 0; color: {color_text};">Esperando Contexto</h4>
+                    <p style="font-size: 0.9rem; margin-top: 5px; color: {text_secondary};">Sube un PDF o selecciona uno de <b>Filtro de Memoria</b> para activar el agente.</p>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -383,7 +442,8 @@ with col_chat:
                             st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
                             st.info(doc["content"])
 
-        if st.session_state.md_content:
+        # Habilitar chat si hay contenido subido O si hay docs seleccionados en el filtro
+        if st.session_state.md_content or selected_docs:
             if prompt := st.chat_input("Pregunta sobre las cláusulas u objetos del contrato..."):
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
@@ -391,9 +451,13 @@ with col_chat:
 
                 with st.chat_message("assistant"):
                     with st.status("Analizando requerimiento legal...", expanded=True) as status:
+                        # CARGA PEREZOSA: Inicializar agente solo ahora
+                        if "agent" not in st.session_state:
+                            st.session_state.agent = get_legal_agent()
+                        
                         st.write("🔍 Clasificando intención con el **Router**...")
                         
-                        # Llamada al agente con filtro dinámico
+                        # Llamada al agente
                         result = st.session_state.agent.run(prompt, filter_docs=selected_docs)
                         final_text = result["answer"]
                         docs = result["documents"]
@@ -423,7 +487,7 @@ with col_chat:
                         "documents": docs
                     })
         else:
-            st.info("⬅️ Usa la barra lateral para subir y procesar un contrato primero.")
+            st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
 
     with tab_risk:
         st.markdown('<h1 class="main-header">Scanner de Riesgo Global</h1>', unsafe_allow_html=True)
@@ -544,5 +608,8 @@ with col_chat:
             st.info("Haz clic en el botón superior para generar el reporte de métricas actual.")
     
     st.markdown("---")
-    st.info("⬅️ Usa la barra lateral para subir y extraer el Markdown de un contrato primero.")
+    if not (st.session_state.md_content or selected_docs):
+        st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
+    else:
+        st.success("✅ Sistema listo para consultas legales.")
 

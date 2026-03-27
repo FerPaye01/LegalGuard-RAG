@@ -127,6 +127,21 @@ def smart_chunking(markdown_text):
     final_chunks = text_splitter.split_documents(md_header_splits)
     return [chunk.page_content for chunk in final_chunks]
 
+def get_available_documents():
+    """Devuelve la lista única de archivos cargados en el índice de Azure sin cargar el motor de IA."""
+    try:
+        # Usamos el search_client ya instanciado en este módulo
+        results = search_client.search(
+            search_text="*",
+            select=["source_file"],
+            top=1000
+        )
+        unique_files = sorted(list(set(doc["source_file"] for doc in results if doc.get("source_file"))))
+        return unique_files
+    except Exception as e:
+        log_error("No se pudo recuperar la lista de documentos de Azure", e)
+        return []
+
 def index_document_from_text(filename: str, markdown_text: str, file_hash: str = None):
     """
     Indexa un documento directamente desde su texto markdown (para la UI).
