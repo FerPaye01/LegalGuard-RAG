@@ -28,14 +28,16 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Build and Push Image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          tags: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}, ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Usamos el nombre del ACR que creaste: aclgalguardprod
+          tags: |
+            aclgalguardprod.azurecr.io/legalguard-rag:latest
+            aclgalguardprod.azurecr.io/legalguard-rag:${{ github.sha }}
+          # ❌ ELIMINAR LAS LÍNEAS DE cache-from Y cache-to QUE ESTÁN DANDO ERROR
 
   deploy:
     runs-on: ubuntu-latest
