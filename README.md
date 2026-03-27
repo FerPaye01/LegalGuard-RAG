@@ -497,3 +497,38 @@ Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para más detal
 <p align="center">
   Construido con ❤️ por el equipo LegalGuard · Innovation Challenge March 2026
 </p>
+
+## 🚀 Hito 6: Corrección y Estabilización de Despliegue (Post-Troubleshooting)
+
+Tras enfrentar bloqueos de cuota regional y errores de registro de proveedores, se realizó una reingeniería de la infraestructura para asegurar la alta disponibilidad del RAG en Azure.
+
+### 1. Migración Estratégica de Región
+Debido a restricciones de capacidad en East US, se migró el App Service a la región **Canada Central**.
+- **App Service Plan**: Linux (B1), optimizado para cargas de trabajo de Python y procesamiento de lenguaje natural (NLP).
+- **URL de Producción**: https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net
+
+### 2. Infraestructura de Contenedores (ACR)
+Se habilitó un Azure Container Registry (ACR) dedicado para la gestión de imágenes Docker, resolviendo el error de `MissingSubscriptionRegistration` mediante el registro manual del proveedor en el tenant:
+
+```bash
+az provider register --namespace Microsoft.ContainerRegistry
+az acr create --resource-group rg-legalguard-prod --name aclgalguardprod --sku Basic --admin-enabled true
+```
+
+### 3. Configuración de Variables de Entorno (Server-Side)
+Para garantizar la seguridad PII y el cumplimiento legal, se configuraron las siguientes variables directamente en el entorno de ejecución de Azure (evitando fugas en el código fuente):
+
+| Variable | Descripción |
+| :--- | :--- |
+| **WEBSITES_PORT** | 8501 (Puerto nativo para Streamlit) |
+| **AZURE_OPENAI_CHAT_DEPLOYMENT** | gpt-4o (Modelo principal de razonamiento legal) |
+| **AZURE_OPENAI_MINI_DEPLOYMENT** | gpt-4o-mini (Escaneo de riesgos a bajo costo) |
+| **AZURE_SEARCH_INDEX** | contratos-index (Vínculo con AI Search) |
+| **PRESIDIO_ENCRYPTION_KEY** | Llave simétrica para la desidentificación de datos sensibles |
+
+### 4. Pipeline de CI/CD (GitHub Actions)
+Se implementó un flujo de despliegue continuo autenticado mediante Service Principal (RBAC). El flujo realiza las siguientes acciones:
+- **Auth**: Login en Azure mediante `AZURE_CREDENTIALS` (OIDC/JSON).
+- **Build**: Construcción de imagen Docker optimizada.
+- **Push**: Carga de imagen en `aclgalguardprod.azurecr.io`.
+- **Deploy**: Actualización del Web App para jalar la nueva imagen y reiniciar el servicio de Streamlit.

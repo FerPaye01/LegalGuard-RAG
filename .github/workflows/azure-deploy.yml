@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
 
 env:
-  ACR_NAME: ${{ secrets.ACR_NAME }} # Ej: legalguardacr
+  ACR_NAME: aclgalguardprod
   IMAGE_NAME: legalguard-rag
-  APP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }} # Ej: app-legalguard-prod
+  APP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }} # Debe ser legal-guard-rag
 
 jobs:
   build-and-push:
