@@ -244,6 +244,55 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         from {{ opacity: 0; transform: translateY(10px); }}
         to {{ opacity: 1; transform: translateY(0); }}
     }}
+
+    /* PREMIUM LEGAL VIEW INTERFACE */
+    .legal-document-viewer {{
+        max-height: 70vh;
+        overflow-y: auto;
+        padding-right: 15px;
+        scrollbar-width: thin;
+        scrollbar-color: #3B82F6 {bg_app};
+    }}
+    
+    .legal-document-viewer::-webkit-scrollbar {{
+        width: 6px;
+    }}
+    .legal-document-viewer::-webkit-scrollbar-thumb {{
+        background: #3B82F6;
+        border-radius: 10px;
+    }}
+
+    .legal-document-card {{
+        background-color: {bg_chat};
+        border: 1px solid {border_color};
+        border-left: 5px solid #3B82F6;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        line-height: 1.7;
+        color: {color_text};
+    }}
+
+    .legal-section-badge {{
+        display: inline-block;
+        padding: 2px 10px;
+        background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
+        color: white !important;
+        border-radius: 15px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 12px;
+        letter-spacing: 0.5px;
+    }}
+
+    .legal-text-highlight {{
+        background-color: rgba(59, 130, 246, 0.1);
+        border-bottom: 2px solid #3B82F6;
+        font-weight: 600;
+        padding: 0 2px;
+    }}
 </style>
 """
 
@@ -492,6 +541,36 @@ with col_pdf:
                 help="Selecciona el documento contra el cual quieres comparar."
             )
 
+        def render_legal_content(text, title="Documento"):
+            """Formatea el contenido con estética Premium Legal."""
+            import re
+            
+            # Limpieza y preparación
+            content = text if text else "Sin contenido disponible."
+            
+            # Resaltado de Secciones/Artículos (Regex simple)
+            # Busca patrones como "Article 1", "Sección 2", "SOP No. 5", "Cláusula 4"
+            patterns = [
+                r"(Article\s+\d+)", r"(Sección\s+\d+)", r"(SOP\s+No\.\s+\d+)", 
+                r"(Cláusula\s+\d+)", r"(Standard\s+Operational\s+Procedure\s+No\.\s+\d+)"
+            ]
+            for p in patterns:
+                content = re.sub(p, r'<span class="legal-section-badge">\1</span>', content, flags=re.IGNORECASE)
+
+            html = f"""
+            <div class="legal-document-viewer">
+                <div class="legal-document-card">
+                    <div style="margin-bottom: 20px; border-bottom: 1px solid {border_color}; padding-bottom: 10px;">
+                        <span style="font-weight: 700; color: #3B82F6; font-size: 1.1rem;">📄 {title}</span>
+                    </div>
+                    <div style="font-size: 0.95rem; color: {color_text};">
+                        {content}
+                    </div>
+                </div>
+            </div>
+            """
+            return html
+
         def get_preview_content(selection):
             """Helper para obtener el contenido de vista previa según la selección."""
             if selection == "📄 Ingesta Actual":
@@ -508,21 +587,16 @@ with col_pdf:
                     results = list(s_client.search(
                         search_text="*",
                         filter=f"source_file eq '{selection}'",
-                        top=8, # Un poco más de contexto para la mesa de trabajo
+                        top=12, # Aumentamos el contexto para el nuevo visor
                         select=["content"]
                     ))
                     if results:
-                        content = f"### 🔍 Vista previa: `{selection}`\n\n"
-                        content += "\n\n".join([r["content"] for r in results])
-                        return content
+                        return "\n\n".join([r["content"] for r in results])
                 except Exception as e:
                     return f"⚠️ Error recuperando '{selection}': {e}"
             return None
 
-        # Renderizado de la Mesa de Trabajo
-        bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
-        color_info = "#3B82F6" if st.session_state.dark_mode else "#0369A1"
-        
+        # Renderizado de la Mesa de Trabajo Premium
         st.markdown(f"""
             <div style="background-color: {bg_info}; border-left: 4px solid #3B82F6; padding: 10px; border-radius: 8px; font-size: 0.85rem; color: {color_info}; margin-bottom: 15px;">
                 💡 <b>Mesa de Trabajo:</b> {'Comparando dos documentos en paralelo' if compare_mode else 'Analizando documento individual'}.
@@ -532,16 +606,14 @@ with col_pdf:
         if compare_mode and ref_doc_selection:
             col_left, col_right = st.columns(2)
             with col_left:
-                st.info(f"Base: {base_doc_selection}")
                 content_base = get_preview_content(base_doc_selection)
-                st.markdown(content_base or "Sin contenido", unsafe_allow_html=True)
+                st.markdown(render_legal_content(content_base, base_doc_selection), unsafe_allow_html=True)
             with col_right:
-                st.success(f"Ref: {ref_doc_selection}")
                 content_ref = get_preview_content(ref_doc_selection)
-                st.markdown(content_ref or "Sin contenido", unsafe_allow_html=True)
+                st.markdown(render_legal_content(content_ref, ref_doc_selection), unsafe_allow_html=True)
         else:
             content_base = get_preview_content(base_doc_selection)
-            st.markdown(content_base or "Sin contenido", unsafe_allow_html=True)
+            st.markdown(render_legal_content(content_base, base_doc_selection), unsafe_allow_html=True)
 
     else:
         st.markdown(f"""
