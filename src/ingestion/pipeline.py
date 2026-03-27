@@ -1,5 +1,6 @@
 import os
 import time
+import hashlib
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient
 from openai import AzureOpenAI
@@ -49,16 +50,17 @@ def create_index_if_not_exists():
     except Exception:
         log_info(f"Creando el índice '{INDEX_NAME}' desde cero...")
         
-        # Esquema del RAG: ID, ArchivoOrigen, Chunk de texto, y su Vector de 1536 dimensiones
+        # Esquema del RAG: ID, ArchivoOrigen, Chunk de texto, Hash y Vector
         fields = [
             SimpleField(name="id", type=SearchFieldDataType.String, key=True),
             SearchableField(name="source_file", type=SearchFieldDataType.String, filterable=True),
             SearchableField(name="content", type=SearchFieldDataType.String),
+            SimpleField(name="file_hash", type=SearchFieldDataType.String, filterable=True),
             SearchField(
                 name="content_vector",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                 searchable=True,
-                vector_search_dimensions=1536, # Acorde a 3-small predeterminado
+                vector_search_dimensions=1536,
                 vector_search_profile_name="myHnswProfile"
             )
         ]
@@ -73,7 +75,31 @@ def create_index_if_not_exists():
         search_index_client.create_index(index)
         log_info(f"✅ Índice '{INDEX_NAME}' creado exitosamente (HNSW listo).")
 
-# Protección Anti-429 (Too Many Requests)
+def compute_file_hash(file_bytes: bytes) -> str:
+    """Genera la huella digital SHA256 del contenido binario de un archivo."""
+    return hashlib.sha256(file_bytes).hexdigest()
+
+def check_duplicate_by_hash(file_hash: str) -> dict:
+    """
+    Consulta Azure Search para saber si ya existe un documento con este hash exacto.
+    Retorna: {'status': 'new' | 'duplicate' | 'new_version', 'existing_file': str | None}
+    """
+    try:
+        results = list(search_client.search(
+            search_text="*",
+            filter=f"file_hash eq '{file_hash}'",
+            select=["source_file", "file_hash"],
+            top=1
+        ))
+        if results:
+            existing_name = results[0].get("source_file", "")
+            log_warn("Duplicado detectado", f"Hash existente en: {existing_name}")
+            return {"status": "duplicate", "existing_file": existing_name}
+        return {"status": "new", "existing_file": None}
+    except Exception as e:
+        log_error("Error consultando duplicados en Azure Search", e)
+        return {"status": "new", "existing_file": None}
+
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=20))
 def get_embedding_with_retry(text):
     response = oai_client.embeddings.create(input=text, model=EMBEDDING_DEPLOYMENT)
@@ -104,9 +130,10 @@ def smart_chunking(markdown_text):
     final_chunks = text_splitter.split_documents(md_header_splits)
     return [chunk.page_content for chunk in final_chunks]
 
-def index_document_from_text(filename: str, markdown_text: str):
+def index_document_from_text(filename: str, markdown_text: str, file_hash: str = None):
     """
     Indexa un documento directamente desde su texto markdown (para la UI).
+    Si se provee file_hash, lo adjunta a cada chunk para auditoría.
     """
     create_index_if_not_exists()
     
@@ -118,12 +145,15 @@ def index_document_from_text(filename: str, markdown_text: str):
         vector = get_embedding_with_retry(chunk_text)
         safe_id = "".join(c for c in f"{filename}_{i}" if c.isalnum() or c in "-_")
         
-        documents_to_upload.append({
+        doc = {
             "id": safe_id,
             "source_file": filename,
             "content": chunk_text,
             "content_vector": vector
-        })
+        }
+        if file_hash:
+            doc["file_hash"] = file_hash
+        documents_to_upload.append(doc)
     
     if documents_to_upload:
         search_client.upload_documents(documents=documents_to_upload)

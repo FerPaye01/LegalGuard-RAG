@@ -17,6 +17,7 @@ from src.ingestion.pipeline import index_document_from_text
 from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
 from src.metrics import run_evaluation
+from src.ingestion.pipeline import compute_file_hash, check_duplicate_by_hash
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -241,37 +242,54 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Sube un documento PDF", type="pdf")
     
     if uploaded_file and st.button("🚀 Procesar con IA (Doc Intel)", use_container_width=True):
-        with st.status("Preparando archivo local...", expanded=True) as status:
-            try:
-                # 1. Guardar temporalmente
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                    tmp.write(uploaded_file.getvalue())
-                    tmp_path = tmp.name
-                
-                # 2. Ingesta a Azure Document Intelligence
-                status.write("Enviando a Azure Document Intelligence...")
-                status.write("Extrayendo Markdown e inyectando Tablas HTML...")
-                
-                # Sincronización Automática con Blob Storage (Opción B - Nivel Empresarial)
-                file_bytes = uploaded_file.getvalue()
-                if upload_to_blob(file_bytes, uploaded_file.name):
-                    st.toast(f"☁️ {uploaded_file.name} sincronizado en el Storage", icon="✅")
-                
-                md_result = extract_document_hybrid(tmp_path)
-                
-                if md_result:
-                    # 3. Indexación en Caliente (Hot-Indexing) 🔥
-                    status.write("Enviando fragmentos a la Base Vectorial (Azure AI Search)...")
-                    index_document_from_text(uploaded_file.name, md_result)
+        file_bytes = uploaded_file.getvalue()
+        file_hash = compute_file_hash(file_bytes)
+        
+        # --- Validación de Duplicados (Opción B - SHA256) ✅ ---
+        dup_check = check_duplicate_by_hash(file_hash)
+        
+        if dup_check["status"] == "duplicate":
+            st.error(
+                f"🔒 **Duplicado Detectado**: Este archivo ya existe en el índice como "
+                f'`{dup_check["existing_file"]}`. No se realizará ninguna acción para evitar redundancia.'
+            )
+        else:
+            if dup_check["status"] == "new_version":
+                st.warning(
+                    f"🔄 **Nueva Versión Detectada**: El nombre `{uploaded_file.name}` ya existe "
+                    f"pero el contenido cambió. Se procederá a actualizar el índice."
+                )
+
+            with st.status("Preparando archivo local...", expanded=True) as status:
+                try:
+                    # 1. Guardar temporalmente
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        tmp.write(file_bytes)
+                        tmp_path = tmp.name
                     
-                    st.session_state.md_content = md_result
-                    status.update(label="¡Indexación y Procesamiento completados!", state="complete", expanded=False)
-                    os.unlink(tmp_path)
-                    st.rerun() 
-                else:
-                    status.update(label="Fallo en la extracción de Azure", state="error", expanded=True)
-            except Exception as e:
-                status.update(label=f"Excepción: {e}", state="error", expanded=True)
+                    # 2. Ingesta a Azure Document Intelligence
+                    status.write("Enviando a Azure Document Intelligence...")
+                    status.write("Extrayendo Markdown e inyectando Tablas HTML...")
+                    
+                    # Sincronización Automática con Blob Storage
+                    if upload_to_blob(file_bytes, uploaded_file.name):
+                        st.toast(f"☁️ {uploaded_file.name} sincronizado en el Storage", icon="✅")
+                    
+                    md_result = extract_document_hybrid(tmp_path)
+                    
+                    if md_result:
+                        # 3. Indexación en Caliente con Hash adjunto 🔥
+                        status.write("Enviando fragmentos a la Base Vectorial (Azure AI Search)...")
+                        index_document_from_text(uploaded_file.name, md_result, file_hash=file_hash)
+                        
+                        st.session_state.md_content = md_result
+                        status.update(label="¡Indexación y Procesamiento completados!", state="complete", expanded=False)
+                        os.unlink(tmp_path)
+                        st.rerun() 
+                    else:
+                        status.update(label="Fallo en la extracción de Azure", state="error", expanded=True)
+                except Exception as e:
+                    status.update(label=f"Excepción: {e}", state="error", expanded=True)
 
     st.markdown("---")
     

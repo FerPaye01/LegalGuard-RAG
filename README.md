@@ -385,6 +385,41 @@ print(f"Cláusulas faltantes: {report['clauses_missing']}")
 
 ---
 
+## 🔐 Integridad Documental: Validación de Duplicados (SHA256)
+
+Una herramienta empresarial no puede permitir que el índice se llene de copias redundantes. LegalGuard implementa una **huella digital SHA256** para garantizar la integridad de cada documento ingerido.
+
+### Flujo de Validación
+
+```mermaid
+flowchart TD
+    A[Usuario sube PDF] --> B[Calcular SHA256 del archivo]
+    B --> C{¿Hash existe en Azure Search?}
+    C -- Sí --> D[🔒 Bloquear: Duplicado Exacto Detectado]
+    C -- No --> E{¿Mismo nombre de archivo?}
+    E -- Sí --> F[🔄 Avisar: Nueva Versión - Actualizar Índice]
+    E -- No --> G[✅ Nuevo Documento - Procesar Ingesta]
+    F --> G
+    D --> H[Fin sin procesar]
+    G --> H
+```
+
+### Matriz de Casos (Integridad Legal)
+
+| Escenario | Hash | Nombre | Resultado |
+| :--- | :--- | :--- | :--- |
+| Mismo archivo, mismo nombre | ≡ Igual | ≡ Igual | 🔒 **Bloqueado** (Duplicado) |
+| Mismo archivo, renombrado | ≡ Igual | ≠ Distinto | 🔒 **Bloqueado** (Contenido idéntico) |
+| Contrato **firmado** vs. borrador | ≠ Distinto | ≡ Igual | 🔄 **Nueva Versión** (legalmente distinto) |
+| Misma plantilla, nuevas partes | ≠ Distinto | ≠ Distinto | ✅ **Nuevo Documento** |
+
+### Implementación Técnica
+- **`compute_file_hash(file_bytes)`**: Genera el SHA256 de los bytes del PDF. Operación local, instantánea y sin costo.
+- **`check_duplicate_by_hash(file_hash)`**: Consulta Azure Search con filtro OData `file_hash eq '...'` para detectar colisiones.
+- **Campo `file_hash`**: Añadido como `SimpleField(filterable=True)` al esquema del índice de Azure Search.
+
+---
+
 ## 📈 Evaluación y métricas (RAGAS)
 
 LegalGuard integra el framework **RAGAS** para realizar auditorías de "LLM-as-a-Judge". A diferencia de las métricas tradicionales, RAGAS utiliza un modelo superior (GPT-4o) para validar la integridad de las respuestas contra el contexto recuperado.
