@@ -167,3 +167,22 @@ have under this ...]
 2026-03-27 13:15:18,800 | LegalGuard | INFO     | [El índice 'contratos-index' ya existe.]
 2026-03-27 13:15:19,171 | LegalGuard | INFO     | [Indexando who_mch_clinic_sop.pdf: particionado en 8 trozos.]
 2026-03-27 13:15:34,569 | LegalGuard | INFO     | [✅ 8 vectores inyectados de who_mch_clinic_sop.pdf]
+2026-03-27 14:25:49,700 | LegalGuard | INFO     | 🚀 [Iniciando Backfill de Hashes SHA256] >>> Mantenimiento
+2026-03-27 14:25:52,621 | LegalGuard | INFO     | [Encontrados 3 archivos en el storage.]
+2026-03-27 14:25:52,621 | LegalGuard | INFO     | [Procesando: 3511_standard_nda.pdf]
+2026-03-27 14:27:33,840 | LegalGuard | INFO     | 🚀 [Iniciando Backfill de Hashes SHA256] >>> Mantenimiento
+2026-03-27 14:27:35,154 | LegalGuard | INFO     | [Encontrados 3 archivos en el storage.]
+2026-03-27 14:27:35,154 | LegalGuard | INFO     | [Procesando: 3511_standard_nda.pdf]
+2026-03-27 14:29:07,090 | LegalGuard | INFO     | [Iniciando actualización forzada de esquema...]
+2026-03-27 14:29:07,090 | LegalGuard | INFO     | 🚀 [Sincronizando esquema de índice en AI Search] >>> contratos-index
+2026-03-27 14:29:08,346 | LegalGuard | INFO     | [✅ Esquema del índice 'contratos-index' sincronizado.]
+2026-03-27 14:29:08,346 | LegalGuard | INFO     | [Actualización de esquema solicitada a Azure.]
+2026-03-27 14:29:13,451 | LegalGuard | INFO     | 🚀 [Iniciando Backfill de Hashes SHA256] >>> Mantenimiento
+2026-03-27 14:29:14,688 | LegalGuard | INFO     | [Encontrados 3 archivos en el storage.]
+2026-03-27 14:29:14,688 | LegalGuard | INFO     | [Procesando: 3511_standard_nda.pdf]
+2026-03-27 14:29:16,194 | LegalGuard | INFO     | [✅ Actualizados 5 fragmentos de 3511_standard_nda.pdf con hash 8995a933e4...]
+2026-03-27 14:29:16,197 | LegalGuard | INFO     | [Procesando: BT_NDA.pdf]
+2026-03-27 14:29:17,031 | LegalGuard | INFO     | [✅ Actualizados 8 fragmentos de BT_NDA.pdf con hash d12961d903...]
+2026-03-27 14:29:17,031 | LegalGuard | INFO     | [Procesando: Basic-Non-Disclosure-Agreement.pdf]
+2026-03-27 14:29:17,699 | LegalGuard | INFO     | [✅ Actualizados 4 fragmentos de Basic-Non-Disclosure-Agreement.pdf con hash efff2dbbb2...]
+2026-03-27 14:29:17,708 | LegalGuard | INFO     | 🚀 [BACKFILL COMPLETADO] >>> Integridad SHA256 garantizada.

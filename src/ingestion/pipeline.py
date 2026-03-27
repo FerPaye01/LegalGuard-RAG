@@ -43,37 +43,34 @@ search_index_client = SearchIndexClient(endpoint=SEARCH_ENDPOINT, credential=Azu
 search_client = SearchClient(endpoint=SEARCH_ENDPOINT, index_name=INDEX_NAME, credential=AzureKeyCredential(SEARCH_KEY))
 
 def create_index_if_not_exists():
-    log_sequence("Verificando índice en AI Search", INDEX_NAME)
-    try:
-        search_index_client.get_index(INDEX_NAME)
-        log_info(f"El índice '{INDEX_NAME}' ya existe.")
-    except Exception:
-        log_info(f"Creando el índice '{INDEX_NAME}' desde cero...")
-        
-        # Esquema del RAG: ID, ArchivoOrigen, Chunk de texto, Hash y Vector
-        fields = [
-            SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-            SearchableField(name="source_file", type=SearchFieldDataType.String, filterable=True),
-            SearchableField(name="content", type=SearchFieldDataType.String),
-            SimpleField(name="file_hash", type=SearchFieldDataType.String, filterable=True),
-            SearchField(
-                name="content_vector",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                searchable=True,
-                vector_search_dimensions=1536,
-                vector_search_profile_name="myHnswProfile"
-            )
-        ]
-        
-        # Configuración de HNSW como indica el skill del proyecto
-        vector_search = VectorSearch(
-            algorithms=[HnswAlgorithmConfiguration(name="myHnsw")],
-            profiles=[VectorSearchProfile(name="myHnswProfile", algorithm_configuration_name="myHnsw")]
+    log_sequence("Sincronizando esquema de índice en AI Search", INDEX_NAME)
+    
+    # Esquema del RAG: ID, ArchivoOrigen, Chunk de texto, Hash y Vector
+    fields = [
+        SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+        SearchableField(name="source_file", type=SearchFieldDataType.String, filterable=True),
+        SearchableField(name="content", type=SearchFieldDataType.String),
+        SimpleField(name="file_hash", type=SearchFieldDataType.String, filterable=True),
+        SearchField(
+            name="content_vector",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            searchable=True,
+            vector_search_dimensions=1536,
+            vector_search_profile_name="myHnswProfile"
         )
-        
-        index = SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search)
-        search_index_client.create_index(index)
-        log_info(f"✅ Índice '{INDEX_NAME}' creado exitosamente (HNSW listo).")
+    ]
+    
+    # Configuración de HNSW como indica el skill del proyecto
+    vector_search = VectorSearch(
+        algorithms=[HnswAlgorithmConfiguration(name="myHnsw")],
+        profiles=[VectorSearchProfile(name="myHnswProfile", algorithm_configuration_name="myHnsw")]
+    )
+    
+    index = SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search)
+    
+    # create_or_update_index es más robusto para evoluciones de esquema (Hito Final)
+    search_index_client.create_or_update_index(index)
+    log_info(f"✅ Esquema del índice '{INDEX_NAME}' sincronizado.")
 
 def compute_file_hash(file_bytes: bytes) -> str:
     """Genera la huella digital SHA256 del contenido binario de un archivo."""

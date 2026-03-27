@@ -45,16 +45,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Estado de Sesión (Protección Guardia de Estado)
+# 2. Estado de Sesión y Caching de Recursos
+@st.cache_resource
+def get_legal_agent():
+    """Inicializa el cerebro de LangGraph una sola vez y lo mantiene en memoria."""
+    return LegalGuardAgent()
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 if "md_content" not in st.session_state:
     st.session_state.md_content = None
-if "agent" not in st.session_state:
-    # Inicializamos el cerebro de LangGraph una sola vez para ahorrar recursos
-    st.session_state.agent = LegalGuardAgent()
+
+# Iniciar agente desde el recurso cacheado
+st.session_state.agent = get_legal_agent()
 
 # 3. Toggle de Modo Noche (Sidebar) - Debe ir antes del CSS
 st.session_state.dark_mode = st.sidebar.toggle("🌙 Modo Noche", value=st.session_state.dark_mode)
@@ -298,7 +303,12 @@ with st.sidebar:
     
     # Filtro de Documentos (Innovación de Orden)
     st.subheader("🔍 Filtro de Memoria")
-    available_docs = st.session_state.agent.search_engine.get_available_documents()
+    
+    @st.cache_data(ttl=60)
+    def get_doc_list():
+        return st.session_state.agent.search_engine.get_available_documents()
+        
+    available_docs = get_doc_list()
     selected_docs = st.sidebar.multiselect(
         "Consultar solo en:",
         options=available_docs,
