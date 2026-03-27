@@ -59,7 +59,7 @@ class LegalGuardAgent:
         self.fast_llm = self.llm 
         
         # Instanciar el motor de búsqueda híbrido que ya validamos
-        self.retriever = AzureSearchHybridEngine()
+        self.search_engine = AzureSearchHybridEngine()
         
         # Gestor de Gobernanza e IA Responsable
         self.governance = GovernanceManager()
