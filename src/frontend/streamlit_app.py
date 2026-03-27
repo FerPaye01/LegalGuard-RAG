@@ -596,6 +596,9 @@ with col_pdf:
             return None
 
         # Renderizado de la Mesa de Trabajo Premium
+        bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
+        color_info = "#3B82F6" if st.session_state.dark_mode else "#0369A1"
+        
         st.markdown(f"""
             <div style="background-color: {bg_info}; border-left: 4px solid #3B82F6; padding: 10px; border-radius: 8px; font-size: 0.85rem; color: {color_info}; margin-bottom: 15px;">
                 💡 <b>Mesa de Trabajo:</b> {'Comparando dos documentos en paralelo' if compare_mode else 'Analizando documento individual'}.
