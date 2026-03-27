@@ -455,65 +455,96 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.md_content = None
         st.rerun()
-
-# 8. Main Layout (Aplicando Opción B)
-col_pdf, col_chat = st.columns([5, 5]) 
-
 with col_pdf:
-    st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Espejo Legal Processado</h3>', unsafe_allow_html=True)
-    bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
-    color_info = "#3B82F6" if st.session_state.dark_mode else "#0369A1"
+    st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Mesa de Trabajo Inteligente</h3>', unsafe_allow_html=True)
     
-    # Prioridad 1: Documento recién subido
-    # Prioridad 2: Documento seleccionado en el filtro (Vista previa desde el índice)
-    display_content = st.session_state.md_content
+    # Fuentes disponibles: El subido actualmente + los seleccionados en el filtro
+    available_for_preview = []
+    if st.session_state.md_content:
+        available_for_preview.append("📄 Ingesta Actual")
+    if selected_docs:
+        available_for_preview.extend(selected_docs)
     
-    if not display_content and selected_docs:
-        # Recuperar una vista previa rápida de los primeros fragmentos del primer doc seleccionado
-        target_doc = selected_docs[0]
-        try:
-            # Importación local para evitar dependencias circulares
-            from azure.search.documents import SearchClient
-            from azure.core.credentials import AzureKeyCredential
-            
-            s_client = SearchClient(
-                endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
-                index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index"),
-                credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY"))
+    if available_for_preview:
+        col_ctrl1, col_ctrl2 = st.columns([2, 1])
+        
+        with col_ctrl1:
+            base_doc_selection = st.selectbox(
+                "Documento Principal", 
+                available_for_preview, 
+                index=0,
+                help="Selecciona el documento que deseas analizar principalmente."
             )
-            
-            results = list(s_client.search(
-                search_text="*",
-                filter=f"source_file eq '{target_doc}'",
-                top=5,
-                select=["content"]
-            ))
-            if results:
-                display_content = f"### 🔍 Vista previa de `{target_doc}` (desde Memoria)\n\n"
-                display_content += "\n\n".join([r["content"] for r in results])
-                display_content += "\n\n---\n*Nota: Esta es una vista previa del índice. Puedes chatear con el documento completo en el panel derecho.*"
-        except Exception as e:
-            log_error("Error recuperando vista previa ligera", e)
+        
+        with col_ctrl2:
+            compare_mode = st.toggle("⚖️ Comparar", value=False, help="Activa la vista dividida para contrastar dos contratos.")
+        
+        ref_doc_selection = None
+        if compare_mode:
+            ref_doc_selection = st.selectbox(
+                "Documento de Referencia",
+                [d for d in available_for_preview if d != base_doc_selection],
+                index=0 if len(available_for_preview) > 1 else None,
+                help="Selecciona el documento contra el cual quieres comparar."
+            )
 
-    if display_content:
+        def get_preview_content(selection):
+            """Helper para obtener el contenido de vista previa según la selección."""
+            if selection == "📄 Ingesta Actual":
+                return st.session_state.md_content
+            else:
+                try:
+                    from azure.search.documents import SearchClient
+                    from azure.core.credentials import AzureKeyCredential
+                    s_client = SearchClient(
+                        endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+                        index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index"),
+                        credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY"))
+                    )
+                    results = list(s_client.search(
+                        search_text="*",
+                        filter=f"source_file eq '{selection}'",
+                        top=8, # Un poco más de contexto para la mesa de trabajo
+                        select=["content"]
+                    ))
+                    if results:
+                        content = f"### 🔍 Vista previa: `{selection}`\n\n"
+                        content += "\n\n".join([r["content"] for r in results])
+                        return content
+                except Exception as e:
+                    return f"⚠️ Error recuperando '{selection}': {e}"
+            return None
+
+        # Renderizado de la Mesa de Trabajo
+        bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
+        color_info = "#3B82F6" if st.session_state.dark_mode else "#0369A1"
+        
         st.markdown(f"""
-            <div style="background-color: {bg_info}; border-left: 4px solid #3B82F6; padding: 12px; border-radius: 8px; font-size: 0.9rem; color: {color_info}; margin-bottom: 20px;">
-                💡 Modo Interactivo: El LLM está consultando el contexto de {'ingesta actual' if st.session_state.md_content else 'memoria seleccionada'}.
+            <div style="background-color: {bg_info}; border-left: 4px solid #3B82F6; padding: 10px; border-radius: 8px; font-size: 0.85rem; color: {color_info}; margin-bottom: 15px;">
+                💡 <b>Mesa de Trabajo:</b> {'Comparando dos documentos en paralelo' if compare_mode else 'Analizando documento individual'}.
             </div>
         """, unsafe_allow_html=True)
 
-        st.markdown(display_content, unsafe_allow_html=True)
-        
-        if st.session_state.md_content:
-            st.markdown("---")
-            with st.expander("🛠️ Ver Código Fuente (Raw Markdown & HTML)"):
-                st.code(st.session_state.md_content, language="markdown")
+        if compare_mode and ref_doc_selection:
+            col_left, col_right = st.columns(2)
+            with col_left:
+                st.info(f"Base: {base_doc_selection}")
+                content_base = get_preview_content(base_doc_selection)
+                st.markdown(content_base or "Sin contenido", unsafe_allow_html=True)
+            with col_right:
+                st.success(f"Ref: {ref_doc_selection}")
+                content_ref = get_preview_content(ref_doc_selection)
+                st.markdown(content_ref or "Sin contenido", unsafe_allow_html=True)
+        else:
+            content_base = get_preview_content(base_doc_selection)
+            st.markdown(content_base or "Sin contenido", unsafe_allow_html=True)
+
     else:
         st.markdown(f"""
             <div class="pdf-viewer-placeholder">
                 <div style="text-align: center;">
-                    <h4 style="margin: 0; color: {color_text};">Esperando Contexto</h4>
-                    <p style="font-size: 0.9rem; margin-top: 5px; color: {text_secondary};">Sube un PDF o selecciona uno de <b>Filtro de Memoria</b> para activar el agente.</p>
+                    <h4 style="margin: 0; color: {color_text};">Mesa de Trabajo Vacía</h4>
+                    <p style="font-size: 0.9rem; margin-top: 5px; color: {text_secondary};">Sube un PDF o selecciona documentos en el panel lateral para activar la vista previa.</p>
                 </div>
             </div>
         """, unsafe_allow_html=True)
