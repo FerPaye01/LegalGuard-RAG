@@ -59,13 +59,18 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 - Responde preguntas en lenguaje natural sobre cualquier contrato
 - **Cada respuesta cita el fragmento exacto** del documento de origen
 - Indicador de confianza: si la información no está en el documento, el sistema lo dice
+- **Auditoría RAGAS**: Evaluación en vivo de Faithfulness y Relevancia directamente en la UI.
 - Historial completo y auditable de consultas
 
-### 🔍 Risk Scanner (innovación principal)
-- Escaneo automático de contratos completos
-- Detecta los **41 tipos de cláusulas críticas** (CUAD) presentes y ausentes
-- Genera un **score de riesgo 0-100** con justificación
-- Exporta informe de análisis en JSON/PDF
+### 🔍 Risk Scanner (Innovación Principal: CUAD Stark)
+- **Auditoría Integral**: Escanea contratos completos en un solo pase de contexto (Tsunami de Contexto) usando `gpt-4o-mini`.
+- **Taxonomía CUAD**: Detecta los **41 tipos de cláusulas críticas** (NDA, Indemnización, Terminación, Limitación de Responsabilidad, etc.).
+- **Scoring de Riesgo**: Genera un **score de riesgo 0-100** basado en la presencia/ausencia de salvaguardas legales.
+- **Structured Outputs**: Garantiza reportes 100% consistentes en JSON (vía Pydantic) para integración con sistemas empresariales.
+
+### ⚡ Ingesta en Caliente (Hot-Indexing)
+- **Memoria Flash**: Ahora, al subir un documento por la UI, el sistema lo indexa en segundos en la Base Vectorial.
+- **RAG Instantáneo**: No requiere procesos batch; el Agente "aprende" del nuevo documento inmediatamente tras la carga.
 
 ### 🛡️ Gobernanza y IA Responsable
 - Filtro de alucinaciones: umbral de confianza configurable
@@ -73,9 +78,20 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 - Dashboard de auditoría con Responsible AI Toolbox de Microsoft
 - Trazabilidad completa: pregunta → fragmentos recuperados → respuesta → fuente
 
-### 🌐 Multi-dominio
-- Dominio legal: contratos comerciales, NDAs, acuerdos de compliance
-- Dominio salud: procedimientos operativos estándar (SOPs) de la OMS
+### 🌐 Multi-dominio Agnóstico (Salud & Legal)
+- **Legal**: Auditoría de contratos CUAD y comparación de NDAs de Stanford.
+- **Salud**: Procesamiento de Procedimientos Operativos Estándar (SOPs) de la **OMS**.
+- El Agente detecta automáticamente el contexto y responde basándose en el documento cargado, sin requerir reprogramación.
+
+### 📊 Evaluación RAGAS (LLM-as-a-Judge)
+- Dashboard integrado para medir **Fidelidad (Faithfulness)** y **Relevancia del Contexto**.
+- Auditoría continua sobre logs de producción para detectar alucinaciones en tiempo real.
+- Uso de GPT-4o como juez imparcial de las respuestas generadas.
+
+### ☁️ Monitoreo Proactivo (Azure Monitor)
+- Telemetría en vivo inyectada en **Application Insights**.
+- Trazabilidad de excepciones y rendimiento del Grafo de LangGraph directamente en Azure.
+
 
 ### 🎨 God Mode UI (Innovation & UX)
 - **Interfaz Dividida (XAI)**: Visualización de PDF al 40% y Chat al 60% para trazabilidad total.
@@ -129,13 +145,14 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 
 | Servicio | Propósito | Tier |
 |----------|-----------|------|
-| **Azure OpenAI Service** | LLM (GPT-4o) + embeddings (ada-002) | Standard |
-| **Azure AI Search** | Base vectorial, búsqueda semántica híbrida | Basic |
-| **Azure Document Intelligence** | Extracción de texto de contratos PDF | Free (500 pág/mes) |
-| **Azure AI Content Safety** | Filtro de inputs/outputs peligrosos | Free tier |
-| **Azure Blob Storage** | Almacén de documentos y logs | LRS Standard |
-| **Azure App Service** | Deploy de la aplicación web | F1 Free |
-| **Azure Monitor + App Insights** | Trazabilidad y observabilidad | Free tier |
+| **Azure OpenAI Service** | LLM (GPT-4o) + Auditor (GPT-4o-mini) + Embeddings | Standard |
+| **Azure AI Search** | Base vectorial con perfil HNSW y RRF | Basic |
+| **Azure Document Intelligence** | Extracción Híbrida (Markdown + HTML Tables) | Free tier |
+| **Azure AI Content Safety** | Gobernanza de Toxicidad I/O con Fallback | Free tier |
+| **Microsoft Presidio** | **Anonimización PII Local** (spaCy es_core_news_lg) | Local |
+| **Azure Blob Storage** | Almacén de documentos y Audit Logs (JSONL) | LRS Standard |
+| **Azure Container Apps** | Sesiones dinámicas para ejecución de código seguro | Standard |
+| **Azure Monitor** | Trazabilidad y observabilidad del Grafo de Estados | Free tier |
 | **Azure AI Studio** | Orquestación y evaluación del pipeline | — |
 
 ---
@@ -210,19 +227,92 @@ AZURE_CONTENT_SAFETY_ENDPOINT=https://TU-RECURSO.cognitiveservices.azure.com/
 AZURE_CONTENT_SAFETY_KEY=tu_api_key
 ```
 
-### 4. Cargar los documentos
+### 4. Ingesta Híbrida de Documentos (Azure Document Intelligence + AI Search)
 
+LegalGuard RAG utiliza un pipeline de ingesta avanzado asíncrono. Los documentos se suben primero a **Azure Blob Storage** y luego se procesan mediante **Azure Document Intelligence** para preservar tablas complejas en HTML antes de ser vectorizados con **Azure OpenAI**.
+
+**1. Preparar el Ground Truth (ContractNLI)**
+Debido a bloqueos de PowerShell con rutas largas, usamos Python nativo para descargar el dataset de validación oficial de Stanford:
 ```bash
-# Descarga y procesa el dataset CUAD
-python src/ingestion.py --dataset cuad --sample 50
-
-# Procesa el PDF de la OMS
-python src/ingestion.py --file data/who_sop.pdf --domain health
+python -c "import urllib.request, zipfile, os; url='https://stanfordnlp.github.io/contract-nli/resources/contract-nli.zip'; zpath=r'./data/contract-nli.zip'; epath=r'./data/contractnli'; urllib.request.urlretrieve(url, zpath); zipfile.ZipFile(zpath, 'r').extractall(epath); os.remove(zpath); print('Descarga ContractNLI finalizada')"
 ```
 
-### 5. Ejecutar la aplicación
+**2. Fase 1: Carga a Blob Storage (`contratos-raw`)**
+Mueve tus PDFs de prueba a `./data/pdfs/` y ejecuta el script unificado de subida (Uploader).
+```bash
+python -m src.ingestion.bulk_upload
+```
+- **¿Qué hace?**: Este script lee sincrónicamente los PDFs de tu disco local y los transporta hacia la nube sin procesarlos.
+- **¿Qué servicio usa?**: Principalmente usa el SDK de **Azure Blob Storage**. Si el contenedor global (`contratos-raw`) no existe, asume el control y lo crea dinámicamente. Es inofensivo y sirve para poblar el lago de datos.
 
-Para que el sistema funcione, levanta primero el backend y luego el frontend:
+**3. Fase 2: Orquestación Batch de Ingesta (El Cerebro RAG)**
+Este script es la obra maestra del pipeline de datos. Procesa de golpe todo PDF que repose en el Blob Storage.
+```bash
+python -m src.ingestion.pipeline
+```
+- **¿Qué hace?**:
+  1. Conecta con el contenedor y baja el PDF a un directorio temporal (`/data/temp/`).
+  2. Lo envía a destruir respetando su esqueleto visual (Markdown + HTML de tablas).
+  3. Ejecuta "Chunking Semántico", dividiendo el texto por encabezados lógicos sin quebrar las celdas de las tablas de pagos.
+  4. Genera listas de vectores flotantes de **1536 dimensiones**, protegidos con *Tenacity* por si las APIs sufren bloqueos por estrangulamiento de tasa (HTTP 429).
+  5. Sube los lotes al índice geolocalizado de base de datos vectorial mediante una estructura de grafo **HNSW** (Hierarchical Navigable Small World), optimizando el tiempo de respuesta.
+- **¿Qué servicios utiliza?**:
+  - **Azure Blob Storage** (para leer del contenedor origen).
+  - **Azure Document Intelligence** (Motor OCR Prebuilt-Layout para entender tablas y checkboxes).
+  - **Azure OpenAI** (Modelo de *text-embedding*, como `text-embedding-3-small` o `embedding-prod` configurado en el `.env`).
+  - **Azure AI Search** (Crea y puebla el índice `contratos-index` con perfiles vectoriales).
+
+### 5. Motor de Recuperación Híbrido (BM25 + HNSW RRF)
+
+Una vez poblada la base vectorial, llega el reto maestro: no extraer la respuesta incorrecta (alucinación vectorial). LegalGuard no utiliza la búsqueda vectorial básica (solo matemáticas), sino **Búsqueda Híbrida Avanzada** mediante una técnica de cruce RRF (*Reciprocal Rank Fusion*).
+
+**El Script Core: `src/retrieval/search_engine.py`**
+Diseñado bajo el patrón `AzureSearchHybridEngine`, este script es la pieza que le da vida real a tu RAG:
+1. **Traducción Espacial**: Toma tu pregunta en lenguaje natural y la convierte en 1536 dimensiones flotantes consultando tu API de OpenAI (Opción A).
+2. **Fusión de Rankings (RRF)**: Dispara consultas en paralelo a *Azure AI Search*; la primera buscando la geometría (Vectores vía HNSW) y la segunda buscando el cruce semántico tradicional del texto como ID y nomenclaturas raras (Algoritmo exacto BM25).
+3. Suma ambos universos y genera un score ponderado de Microsoft (el `search.score`). Los "falsos positivos" (que se parecen matemáticamente pero no tienen las palabras clave del usuario) son hundidos en el ranking.
+
+**Validación Unitaria Local**
+Antes de lanzar todo un frontend, puedes probar si tu base de datos entiende las preguntas lanzando un test microscópico:
+```bash
+python -m src.retrieval.search_engine
+```
+Verás cómo tu terminal extrae el nombre del Contrato Original y la línea donde ocurrió el match casi al instante.
+
+### 6. Orquestación Cognitiva (LangGraph)
+
+LegalGuard no es un RAG buscador-respuesta simple; es un **Agente Reactivo** orquestado con `LangGraph` que imita el razonamiento de un auditor legal.
+
+**Arquitectura del Grafo (StateGraph)**
+El sistema utiliza un grafo de estados (`src/agent.py`) para decidir dinámicamente el camino de cada consulta:
+
+```mermaid
+flowchart TD
+    Start((Inicio)) --> Input[Usuario Pregunta]
+    Input --> Router{¿Necesita Contrato?}
+    
+    Router -- No (Saludo/General) --> SimpleLLM[Respuesta Directa]
+    Router -- Sí (Legal) --> Retriever[Azure Search Híbrido]
+    
+    Retriever --> Grader{¿Contexto Útil?}
+    Grader -- No --> Rephrase[Pedir Aclaración]
+    Grader -- Sí --> Generator[Azure OpenAI GPT-4o]
+    
+    Generator --> Citations[Extraer Citas PDF]
+    Citations --> End((Fin))
+```
+
+**Nodos Principales**
+1. **Router**: Clasifica si la pregunta requiere consulta a la base de datos o es charla general.
+2. **Retriever**: Invoca el motor híbrido RRF que ya validamos.
+3. **Grader (Juez de Calidad)**: Un nodo crítico (usando GPT-4o-mini) que evalúa si los documentos recuperados realmente responden a la pregunta, bloqueando respuestas si no hay evidencia fáctica y evitando alucinaciones.
+4. **Generator**: Sintetiza la respuesta final basándose estrictamente en el contexto validado e inyectando citas por archivo.
+
+**Seguridad y Resiliencia**
+- **Filtro de Contenido**: El agente captura excepciones de *Azure Content Safety* (Error 400) y responde de forma amigable ("La respuesta fue bloqueada por políticas de seguridad") sin interrumpir el flujo.
+- **Límite de Recursión**: El grafo tiene un tope de 10 iteraciones para evitar bucles infinitos en el razonamiento.
+
+### 7. Ejecutar la aplicación (Local)
 
 ```bash
 # Terminal 1: Servidor de Orquestación (Backend)
@@ -232,9 +322,30 @@ uvicorn src.api.fastapi_server:app --reload --port 8000
 streamlit run src/frontend/streamlit_app.py
 ```
 
-Abre tu navegador en `http://localhost:8501`
+### 🐳 8. Despliegue con Docker (Azure Web App for Containers)
+
+Para garantizar un arranque eficiente con dependencias pesadas (spaCy + RAGAS), LegalGuard utiliza una **estrategia de contenedores (Opción B)**.
+
+**¿Por qué Docker?**
+- El modelo `es_core_news_lg` de spaCy pesa **~500MB**.
+- Al empaquetarlo en la imagen Docker (`RUN python -m spacy download...`), evitamos descargas en el runtime y superamos los timeouts de Azure App Service.
+
+**Flujo de CI/CD (GitHub Actions):**
+Cada `push` a `main` dispara:
+1.  **Build**: Construcción de la imagen basada en `python:3.10-slim`.
+2.  **Push**: Subida al **Azure Container Registry (ACR)**.
+3.  **Deploy**: Actualización automática de la **Web App for Containers**.
+
+**Comando manual para Docker:**
+```bash
+docker build -t legalguard-rag .
+docker run -p 8501:8501 --env-file .env legalguard-rag
+```
+
+Ver guía detallada en [deployment/README_AZURE.md](deployment/README_AZURE.md).
 
 ---
+
 
 ## 💻 Uso
 
@@ -274,21 +385,18 @@ print(f"Cláusulas faltantes: {report['clauses_missing']}")
 
 ---
 
-## 📈 Evaluación y métricas
+## 📈 Evaluación y métricas (RAGAS)
 
-El sistema se evalúa usando el framework **RAGAS** con el dataset CUAD como ground truth:
+LegalGuard integra el framework **RAGAS** para realizar auditorías de "LLM-as-a-Judge". A diferencia de las métricas tradicionales, RAGAS utiliza un modelo superior (GPT-4o) para validar la integridad de las respuestas contra el contexto recuperado.
 
-| Métrica | Descripción | Objetivo |
-|---------|-------------|----------|
-| **Faithfulness** | Respuestas respaldadas por los documentos | > 0.85 |
-| **Answer Relevancy** | Relevancia de la respuesta a la pregunta | > 0.80 |
-| **Context Precision** | Precisión de los fragmentos recuperados | > 0.75 |
-| **Context Recall** | Cobertura de información relevante | > 0.70 |
+### Métricas Clave integradas en la UI:
+- **Faithfulness (Fidelidad)**: ¿La respuesta se basa 100% en los documentos? (Detecta alucinaciones).
+- **Answer Relevancy**: ¿La respuesta realmente contesta lo que el usuario pidió?
+- **Context Precision**: ¿Los fragmentos recuperados de Azure AI Search son los más óptimos para la consulta?
 
-Para ejecutar la evaluación:
-
+Para ejecutar una evaluación masiva desde la terminal:
 ```bash
-python src/metrics.py --dataset cuad --n_samples 50
+python src/metrics.py
 ```
 
 ---
@@ -297,12 +405,12 @@ python src/metrics.py --dataset cuad --n_samples 50
 
 LegalGuard RAG implementa los principios de IA Responsable de Microsoft:
 
-- **Confiabilidad**: umbral de confianza configurable; el sistema admite cuando no tiene información suficiente
-- **Seguridad**: Azure AI Content Safety filtra inputs y outputs en tiempo real
-- **Privacidad**: los documentos no salen del tenant Azure del usuario
-- **Equidad**: evaluación con Responsible AI Toolbox para detectar sesgos en respuestas
-- **Transparencia**: cada respuesta muestra su fuente, score de confianza y fragmento original
-- **Trazabilidad**: historial completo de consultas disponible en Azure Monitor
+- **Privacidad Local**: Anonimización de PII (DNI, Teléfonos, Nombres) usando **Microsoft Presidio** con el motor `es_core_news_lg` local. Esto garantiza que datos sensibles no viajen a APIs externas de NLP.
+- **Filtro de Alucinaciones**: Nodo Grader exclusivo en LangGraph que valida la relevancia fáctica con un umbral de confianza de **0.015 (RRF)**.
+- **Seguridad Activa**: Azure AI Content Safety filtra inputs y outputs en tiempo real (Protección contra Jailbreaks).
+- **Transparencia**: Cada respuesta muestra su fuente, el score de relevancia y el fragmento original.
+- **Audit Logs Inmutables**: Registro detallado de cada interacción en `outputs/governance/audit_log.jsonl` para cumplimiento normativo.
+- **Trazabilidad**: Historial completo de consultas disponible en Azure Monitor y logs locales.
 
 ---
 
@@ -314,25 +422,61 @@ LegalGuard RAG implementa los principios de IA Responsable de Microsoft:
 | **Oscar Fernando Paye Cahui** | Frontend / Integration | Interfaz Streamlit, deploy Azure, presentación, video demo |
 
 
-**Hackathon**: Microsoft Innovation Challenge March 2026
-**Desafío elegido**: Asistente para la reducción de la carga cognitiva
+## 📑 Trazabilidad de Logros Técnicos
+
+A continuación se detalla el cumplimiento de los requerimientos de las tarjetas de desarrollo ("Pipeline de Ingesta" y "Primera Consulta RAG") y la ubicación exacta de su implementación.
+
+### 🔹 Hito 1: Pipeline de Ingesta (Data Factory)
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Lector de Blob Storage** | `src/ingestion/pipeline.py` | Se logró la conexión asíncrona con el contenedor `contratos-raw` para procesar documentos en la nube. |
+| **Integración Doc Intelligence** | `src/ingestion/document_processor.py` | Se usa el **Layout Model** (Markdown + HTML Tables) para no perder la estructura de tablas complejas de pagos, crucial para el análisis legal. |
+| **Smart Chunking (512/50)** | `src/ingestion/pipeline.py` | Se implementó un particionado que respeta los saltos de sección y las tablas HTML, garantizando que el contexto recuperado sea coherente. |
+| **Embeddings Azure OpenAI** | `src/ingestion/pipeline.py` | Uso de `text-embedding-3-small` (1536 dim) para una representación semántica superior y optimizada en costos. |
+| **Indexación AI Search** | `src/ingestion/pipeline.py` | Creación del índice `contratos-index` con perfil vectorial **HNSW**, permitiendo búsquedas de milisegundos en miles de documentos. |
+
+### 🔹 Hito 2: Primera Consulta RAG (Orquestación)
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Motor de Búsqueda Híbrido** | `src/retrieval/search_engine.py` | Implementación de **RRF (Reciprocal Rank Fusion)** que combina BM25 (léxico) y HNSW (semántico), eliminando falsos positivos. |
+| **Cerebro LangGraph** | `src/agent.py` | Implementación de un **Agente Reactivo**. El **Nodo Grader** aplica un **Filtro Selectivo** en paralelo a todos los documentos, purgando el ruido y enviando al LLM solo contexto 100% puro. |
+| **Wrapper de Aplicación** | `src/rag_engine.py` | Un punto de entrada simplificado que encapsula la complejidad del Grafo de Estados para el consumo de la API o el Frontend. |
+| **Interfaz God Mode UI** | `src/frontend/streamlit_app.py` | Una UX dividida que permite ver el PDF reconstruido y el chat simultáneamente, reduciendo la carga cognitiva. |
+| **Transparencia XAI Activa** | `src/frontend/streamlit_app.py` | El *Toque Maestro* para demos: el estado de razonamiento expone los contadores reales (*"Encontró 3 fragmentos → Validó 2 como relevantes"*), elevando la confianza del jurado. |
+| **Visor de Citas y Fuentes** | `src/frontend/streamlit_app.py` | Se añadió un **Panel de Fragmentos** (`st.expander`) que muestra el texto original exacto y la fuente. |
+
+### 🔹 Hito 3: Gobernanza y IA Responsable (Seguridad)
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Azure Content Safety I/O** | `src/governance.py` | Implementado como un "Gatekeeper" proactivo con resiliencia (DNS Fallback) para asegurar la demo. |
+| **Anonimización PII Local** | `src/governance.py` | Integración de **Microsoft Presidio + spaCy**. Detección y enmascaramiento de nombres, DNI y teléfonos sin salir del entorno local. |
+| **Gobernanza y Auditoría** | `outputs/governance/` | Sistema de logs en formato **JSONL** que registra cada pensamiento del agente y su base documental. |
+| **Filtro de Confianza (RRF)** | `src/agent.py` | Umbral de **0.015** (Modo Estricto) para el Grader, eliminando alucinaciones antes de que lleguen al usuario. |
+
+### 🔹 Hito 4: Risk Scanner — Feature Estrella
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Motor de Auditoría CUAD** | `src/risk_scanner.py` | Uso de **GPT-4o-mini con Structured Outputs** para escanear 41 tipos de cláusulas en un solo pase. |
+| **Cálculo de Score Legal** | `src/risk_scanner.py` | Lógica de scoring ponderada que penaliza la ausencia de cláusulas críticas (Ej. Terminación, Confidencialidad). |
+| **Dashboard de Riesgo UX** | `src/frontend/app.py` | Visualización dinámica con métricas, alertas rojas/verdes y desglose detallado por cláusula. |
+| **Exportación JSON/PDF** | `src/frontend/app.py` | Generación instantánea de informes de auditoría técnica para el área de compliance. |
+| **Hot-Indexing (Fast-Track)** | `src/ingestion/pipeline.py`| Indexación en tiempo real desde la UI, eliminando la necesidad de procesos batch para nuevos documentos. |
+
+### 🔹 Hito 5: Evaluación RAGAS y Multi-dominio
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Instalación RAGAS** | `requirements.txt` | Auditoría semántica activada mediante el framework líder de evaluación RAG. |
+| **Motor de Métricas** | `src/metrics.py` | Evaluación de **Faithfulness** y **Answer Relevancy** usando logs de auditoría real. |
+| **Dashboard de Calidad** | `src/frontend/app.py` | Visualización en tiempo real de scores de calidad en el Tab "Métricas RAGAS". |
+| **Capacidad Multi-dominio** | `src/agent.py` | Demostrada con el SOP de la OMS; el sistema responde con citas precisas sobre salud sin cambios en el código core. |
+| **Azure Monitor** | `src/utils/logger.py` | Integración de **Application Insights** para telemetría distribuida y observabilidad de errores. |
+| **Despliegue Azure** | `deployment/` | Preparación de archivos de configuración (`README_AZURE.md`) para el deploy automático en App Service. |
 
 ---
-
-## 🏆 Desafío del hackathon
-
-Este proyecto participa en el **Microsoft Innovation Challenge March 2026**, resolviendo el desafío:
-
-> *"Asistente para la reducción de la carga cognitiva — Un sistema de agentes adaptativo que simplifica el trabajo y el aprendizaje para usuarios neurodiversos."*
-
-### Criterios de evaluación
-
-| Criterio | Peso | Nuestra implementación |
-|----------|------|----------------------|
-| Rendimiento | 25% | Respuestas < 3s · RAGAS score > 0.80 |
-| Innovación | 25% | Risk Scanner con score 0-100 · Multi-dominio |
-| Amplitud Azure | 25% | 7 servicios Azure integrados |
-| IA Responsable | 25% | Content Safety + RAI Toolbox + trazabilidad |
+**¿Por qué logramos estos hitos?** 
+1. **Gobernanza**: Cada decisión del agente es auditable mediante la cita de la fuente y el log de auditoría.
+2. **Resiliencia**: El sistema maneja errores de *Content Safety* de Azure OpenAI sin interrumpir la experiencia del usuario.
+3. **Escalabilidad**: El pipeline está diseñado para ingesta batch y la auditoría está optimizada en formato JSONL para post-procesamiento masivo.
 
 ---
 
@@ -350,7 +494,6 @@ Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para más detal
 - [RAGAS](https://docs.ragas.io/) por el framework de evaluación RAG
 
 ---
-
 <p align="center">
   Construido con ❤️ por el equipo LegalGuard · Innovation Challenge March 2026
 </p>

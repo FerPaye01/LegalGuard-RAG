@@ -1,18 +1,12 @@
 # 📊 Estado del Proyecto: LegalGuard RAG
 
-**Última actualización:** 2026-03-24
-**Fase:** Demo-Ready / MVP Finalizado 🚀
+**Última actualización:** 2026-03-27
+**Fase:** Demo-Ready / MVP Finalizado 🚀✨
 
 ## ✅ Hitos Completados
 
 ### 1. Núcleo de Orquestación (Cerebro)
 - [x] Implementación de **LangGraph** con nodos de decisión adaptativos.
-- [x] Personas expertas configurables via `system_prompts.yaml` (Legal, Financial, Orchestrator).
-- [x] Sistema de memoria de hilo persistente para conversaciones coherentes.
-- [x] Sincronización robusta de configuración con **Pydantic V2** (sincronía `.env` ↔ `settings.py`).
-
-### 2. Capa de API y Comunicación
-- [x] Servidor **FastAPI** con soporte para **Server-Sent Events (SSE)**.
 - [x] Streaming de "pensamientos" del agente en tiempo real hacia el frontend.
 - [x] Logging profesional con colores y rotación de archivos para auditoría técnica.
 

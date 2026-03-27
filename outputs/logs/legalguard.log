@@ -28,3 +28,134 @@ azure_container_app_session_pool
 2026-03-24 22:41:11,322 | LegalGuard | INFO     | [api:sse] Iniciando flujo SSE para: ¿Cuáles son las obligaciones o penalidades para el...
 2026-03-24 22:41:11,491 | LegalGuard | INFO     | 🚀 [nodo: classify_intent] >>> Evaluando intención del usuario
 2026-03-24 22:41:18,829 | LegalGuard | ERROR    | [api:sse] Connection error.
+2026-03-26 14:26:12,072 | LegalGuard | INFO     | 🚀 [Iniciando subida masiva a Azure Storage] >>> BlobService
+2026-03-26 14:26:12,131 | LegalGuard | ERROR    | [Falta la variable AZURE_STORAGE_CONNECTION_STRING en el .env] None
+2026-03-26 14:29:00,486 | LegalGuard | INFO     | 🚀 [Iniciando subida masiva a Azure Storage] >>> BlobService
+2026-03-26 14:29:02,151 | LegalGuard | INFO     | [Contenedor 'contratos-raw' creado en Storage.]
+2026-03-26 14:29:02,530 | LegalGuard | INFO     | [✅ Subido al Storage: 3511_standard_nda.pdf]
+2026-03-26 14:29:02,753 | LegalGuard | INFO     | [✅ Subido al Storage: Basic-Non-Disclosure-Agreement.pdf]
+2026-03-26 14:29:02,965 | LegalGuard | INFO     | [✅ Subido al Storage: BT_NDA.pdf]
+2026-03-26 14:29:02,965 | LegalGuard | INFO     | 🚀 [Proceso de Bulk Upload finalizado] >>> Total enviados: 3 PDFs
+2026-03-26 14:36:37,643 | LegalGuard | INFO     | 🚀 [Arrancando el Pipeline Batch Secuencial (Opción A)] >>> ETL
+2026-03-26 14:36:38,739 | LegalGuard | INFO     | 🚀 [Verificando índice en AI Search] >>> contratos-index
+2026-03-26 14:36:40,015 | LegalGuard | INFO     | [Creando el índice 'contratos-index' desde cero...]
+2026-03-26 14:36:41,312 | LegalGuard | INFO     | [✅ Índice 'contratos-index' creado exitosamente (HNSW listo).]
+2026-03-26 14:36:41,344 | LegalGuard | INFO     | [Escaneando contenedor 'contratos'...]
+2026-03-26 14:36:41,542 | LegalGuard | INFO     | 🚀 [PIPELINE 100% COMPLETADO] >>> 0 documentos PDF vectorizados.
+2026-03-26 14:38:19,559 | LegalGuard | INFO     | 🚀 [Arrancando el Pipeline Batch Secuencial (Opción A)] >>> ETL
+2026-03-26 14:38:20,449 | LegalGuard | INFO     | 🚀 [Verificando índice en AI Search] >>> contratos-index
+2026-03-26 14:38:21,421 | LegalGuard | INFO     | [El índice 'contratos-index' ya existe.]
+2026-03-26 14:38:21,421 | LegalGuard | INFO     | [Escaneando contenedor 'contratos-raw'...]
+2026-03-26 14:38:21,746 | LegalGuard | INFO     | 🚀 [Procesando Blob] >>> 3511_standard_nda.pdf
+2026-03-26 14:38:29,895 | LegalGuard | INFO     | [Documento particionado semánticamente en 5 trozos.]
+2026-03-26 14:38:40,143 | LegalGuard | INFO     | [✅ 5 vectores inyectados correctamente de 3511_standard_nda.pdf]
+2026-03-26 14:38:40,148 | LegalGuard | INFO     | 🚀 [Procesando Blob] >>> BT_NDA.pdf
+2026-03-26 14:38:48,977 | LegalGuard | INFO     | [Documento particionado semánticamente en 8 trozos.]
+2026-03-26 14:38:52,333 | LegalGuard | INFO     | [✅ 8 vectores inyectados correctamente de BT_NDA.pdf]
+2026-03-26 14:38:52,334 | LegalGuard | INFO     | 🚀 [Procesando Blob] >>> Basic-Non-Disclosure-Agreement.pdf
+2026-03-26 14:39:01,271 | LegalGuard | INFO     | [Documento particionado semánticamente en 4 trozos.]
+2026-03-26 14:39:03,383 | LegalGuard | INFO     | [✅ 4 vectores inyectados correctamente de Basic-Non-Disclosure-Agreement.pdf]
+2026-03-26 14:39:03,385 | LegalGuard | INFO     | 🚀 [PIPELINE 100% COMPLETADO] >>> 3 documentos PDF vectorizados.
+2026-03-26 14:43:41,249 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 15:04:37,593 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> confidential information and disclosures
+2026-03-26 15:04:41,981 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.03200]
+2026-03-26 15:04:41,983 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.03132]
+2026-03-26 15:04:41,983 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.03116]
+2026-03-26 15:44:12,293 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:44:13,493 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 15:45:01,656 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 15:45:04,995 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:45:06,689 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 15:45:06,693 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:45:07,395 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Retriever] >>> Consultando Azure AI Search
+2026-03-26 15:45:07,397 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> ¿Cuáles son las penalidades por incumplimiento?
+2026-03-26 15:45:10,496 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01667]
+2026-03-26 15:45:10,497 | LegalGuard | INFO     | [Chunk extraído validado en 3511_standard_nda.pdf con Score Híbrido: 0.01639]
+2026-03-26 15:45:10,498 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.01613]
+2026-03-26 15:45:10,501 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Grader] >>> Validando relevancia de fragmentos
+2026-03-26 15:45:11,329 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Generator] >>> Sintetizando respuesta con citas
+2026-03-26 15:46:01,443 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 15:46:03,964 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:46:06,037 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 15:46:06,043 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:46:06,789 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Retriever] >>> Consultando Azure AI Search
+2026-03-26 15:46:06,789 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> ¿Cuáles son las penalidades por incumplimiento?
+2026-03-26 15:46:09,329 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01667]
+2026-03-26 15:46:09,331 | LegalGuard | INFO     | [Chunk extraído validado en 3511_standard_nda.pdf con Score Híbrido: 0.01639]
+2026-03-26 15:46:09,331 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.01613]
+2026-03-26 15:46:09,335 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Grader] >>> Validando relevancia de fragmentos
+2026-03-26 15:46:09,336 | LegalGuard | INFO     | [Calificando fragmento de: BT_NDA.pdf]
+2026-03-26 15:46:09,341 | LegalGuard | INFO     | [Fragmento (Primeros 100 caracteres): therefore, that the Disclosing Party, in addition to any rights and remedies it may
+have under this ...]
+2026-03-26 15:46:10,023 | LegalGuard | INFO     | [Resultado del Grader: yes]
+2026-03-26 15:46:10,029 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Generator] >>> Sintetizando respuesta con citas
+2026-03-26 15:46:59,822 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 15:47:10,711 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:47:12,469 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 15:47:12,475 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 15:47:13,213 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Retriever] >>> Consultando Azure AI Search
+2026-03-26 15:47:13,213 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> ¿Cuáles son las penalidades por incumplimiento?
+2026-03-26 15:47:16,110 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01667]
+2026-03-26 15:47:16,110 | LegalGuard | INFO     | [Chunk extraído validado en 3511_standard_nda.pdf con Score Híbrido: 0.01639]
+2026-03-26 15:47:16,110 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.01613]
+2026-03-26 15:47:16,115 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Grader] >>> Validando relevancia de fragmentos
+2026-03-26 15:47:16,116 | LegalGuard | INFO     | [Calificando fragmento de: BT_NDA.pdf]
+2026-03-26 15:47:16,117 | LegalGuard | INFO     | [Fragmento (Primeros 100 caracteres): therefore, that the Disclosing Party, in addition to any rights and remedies it may
+have under this ...]
+2026-03-26 15:47:16,772 | LegalGuard | INFO     | [Resultado del Grader: yes]
+2026-03-26 15:47:16,775 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Generator] >>> Sintetizando respuesta con citas
+2026-03-26 15:47:22,561 | LegalGuard | ERROR    | [CRITICAL: El Filtro de Contenido bloqueó la generación final] Error code: 400 - {'error': {'message': "The response was filtered due to the prompt triggering Azure OpenAI's content management policy. Please modify your prompt and retry. To learn more about our content filtering policies please read our documentation: https://go.microsoft.com/fwlink/?linkid=2198766", 'type': None, 'param': 'prompt', 'code': 'content_filter', 'status': 400, 'innererror': {'code': 'ResponsibleAIPolicyViolation', 'content_filter_result': {'hate': {'filtered': False, 'severity': 'safe'}, 'jailbreak': {'filtered': True, 'detected': True}, 'self_harm': {'filtered': False, 'severity': 'safe'}, 'sexual': {'filtered': False, 'severity': 'safe'}, 'violence': {'filtered': False, 'severity': 'safe'}}}}}
+2026-03-26 15:57:06,438 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 16:01:29,471 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 16:56:15,679 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 20:49:16,535 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 20:52:17,797 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 21:06:49,247 | LegalGuard | INFO     | [Security] Azure AI Content Safety conectado.
+2026-03-26 22:06:13,000 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 22:13:17,389 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 22:19:19,058 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 22:20:32,415 | LegalGuard | INFO     | [Security] Azure AI Content Safety conectado.
+2026-03-26 22:20:55,050 | LegalGuard | INFO     | [Privacy] Microsoft Presidio (NLP Local en ESPAÑOL) inicializado.
+2026-03-26 22:43:44,307 | LegalGuard | INFO     | 🚀 [Gobernanza] >>> Validando seguridad de la consulta...
+2026-03-26 22:43:44,448 | LegalGuard | ERROR    | [Security] Error en Content Safety: HTTPSConnection(host='cs-legalguard-safety.cognitiveservices.azure.com', port=443): Failed to resolve 'cs-legalguard-safety.cognitiveservices.azure.com' ([Errno 11001] getaddrinfo failed)
+2026-03-26 22:43:44,450 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 22:43:46,433 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Retriever] >>> Consultando Azure AI Search
+2026-03-26 22:43:46,434 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> De que trata el documento?
+2026-03-26 22:43:49,021 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.01667]
+2026-03-26 22:43:49,021 | LegalGuard | INFO     | [Chunk extraído validado en Basic-Non-Disclosure-Agreement.pdf con Score Híbrido: 0.01639]
+2026-03-26 22:43:49,021 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01613]
+2026-03-26 22:43:49,031 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Grader] >>> Validando relevancia de TODOS los fragmentos (Opción A)
+2026-03-26 22:43:49,031 | LegalGuard | WARNING  | [Confianza insuficiente (RRF 0.0167 < 0.02). Bloqueando RAG.]
+2026-03-26 22:43:49,034 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 22:47:29,265 | LegalGuard | INFO     | 🚀 [Gobernanza] >>> Validando seguridad de la consulta...
+2026-03-26 22:47:29,310 | LegalGuard | ERROR    | [Security] Error en Content Safety: HTTPSConnection(host='cs-legalguard-safety.cognitiveservices.azure.com', port=443): Failed to resolve 'cs-legalguard-safety.cognitiveservices.azure.com' ([Errno 11001] getaddrinfo failed)
+2026-03-26 22:47:29,311 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 22:47:30,364 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 22:47:42,482 | LegalGuard | INFO     | 🚀 [Gobernanza] >>> Validando seguridad de la consulta...
+2026-03-26 22:47:42,510 | LegalGuard | ERROR    | [Security] Error en Content Safety: HTTPSConnection(host='cs-legalguard-safety.cognitiveservices.azure.com', port=443): Failed to resolve 'cs-legalguard-safety.cognitiveservices.azure.com' ([Errno 11001] getaddrinfo failed)
+2026-03-26 22:47:42,512 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 22:47:43,634 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 22:53:21,490 | LegalGuard | INFO     | 🚀 [Gobernanza] >>> Validando seguridad de la consulta...
+2026-03-26 22:53:21,614 | LegalGuard | ERROR    | [Security] Error en Content Safety: HTTPSConnection(host='cs-legalguard-safety.cognitiveservices.azure.com', port=443): Failed to resolve 'cs-legalguard-safety.cognitiveservices.azure.com' ([Errno 11001] getaddrinfo failed)
+2026-03-26 22:53:21,616 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 22:53:22,687 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 23:00:21,317 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-26 23:03:29,962 | LegalGuard | INFO     | [Security] Azure AI Content Safety conectado.
+2026-03-26 23:03:42,742 | LegalGuard | INFO     | [Privacy] Microsoft Presidio (NLP Local en ESPAÑOL) inicializado.
+2026-03-26 23:05:41,782 | LegalGuard | INFO     | 🚀 [Gobernanza] >>> Validando seguridad de la consulta...
+2026-03-26 23:05:41,908 | LegalGuard | ERROR    | [Security] Error en Content Safety: HTTPSConnection(host='cs-legalguard-safety.cognitiveservices.azure.com', port=443): Failed to resolve 'cs-legalguard-safety.cognitiveservices.azure.com' ([Errno 11001] getaddrinfo failed)
+2026-03-26 23:05:41,908 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Router] >>> Clasificando intención
+2026-03-26 23:05:43,114 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Retriever] >>> Consultando Azure AI Search
+2026-03-26 23:05:43,118 | LegalGuard | INFO     | 🚀 [Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)] >>> Cuál es el procedimiento para emergencias obstétricas?
+2026-03-26 23:05:45,171 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01667]
+2026-03-26 23:05:45,171 | LegalGuard | INFO     | [Chunk extraído validado en 3511_standard_nda.pdf con Score Híbrido: 0.01639]
+2026-03-26 23:05:45,173 | LegalGuard | INFO     | [Chunk extraído validado en BT_NDA.pdf con Score Híbrido: 0.01613]
+2026-03-26 23:05:45,173 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo Grader] >>> Validando relevancia de TODOS los fragmentos (Opción A)
+2026-03-26 23:05:47,095 | LegalGuard | INFO     | [❌ Fragmento RECHAZADO (Irrelevante): BT_NDA.pdf]
+2026-03-26 23:05:47,096 | LegalGuard | INFO     | [❌ Fragmento RECHAZADO (Irrelevante): 3511_standard_nda.pdf]
+2026-03-26 23:05:47,097 | LegalGuard | INFO     | [❌ Fragmento RECHAZADO (Irrelevante): BT_NDA.pdf]
+2026-03-26 23:05:47,100 | LegalGuard | INFO     | 🚀 [Cerebro: Nodo General] >>> Charla no-legal
+2026-03-26 23:08:59,882 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-27 00:28:13,000 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-27 00:29:55,683 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-27 00:39:18,702 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG

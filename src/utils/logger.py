@@ -1,6 +1,10 @@
 import logging
 import sys
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Crear el directorio de logs si no existe
 LOG_DIR = Path("outputs/logs")
@@ -41,6 +45,18 @@ def _setup_logger():
     file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(file_formatter)
+
+    # 3. Handler para Azure Monitor (Application Insights)
+    connection_string = os.getenv("AZURE_MONITOR_CONNECTION_STRING")
+    if connection_string:
+        try:
+            from opencensus.ext.azure.log_exporter import AzureLogHandler
+            az_handler = AzureLogHandler(connection_string=connection_string)
+            az_handler.setLevel(logging.INFO)
+            logger.addHandler(az_handler)
+        except Exception as e:
+            # No bloqueamos el inicio si falla App Insights
+            print(f"⚠️ Error al configurar Azure Monitor: {e}")
 
     # Evitar duplicados si se llama múltiples veces
     if not logger.handlers:

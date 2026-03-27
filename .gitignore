@@ -2,10 +2,21 @@
 .agent/
 .gemini/
 
-# Except these files/folders
-!.gitignore
-!README.md
-!src/
+# Project specifics
 .env
 .venv/
 __pycache__/
+data/
+outputs/
+temp/
+.devcontainer/
+*.log
+
+# Keep these
+!.gitignore
+!README.md
+!src/
+!Dockerfile
+!.github/
+!deployment/
+!requirements.txt
