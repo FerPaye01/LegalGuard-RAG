@@ -22,6 +22,7 @@ class AgentState(TypedDict):
     """
     messages: Annotated[List[BaseMessage], "Historia de la conversación"]
     documents: List[dict] # Fragmentos recuperados de Azure AI Search
+    filter_docs: List[str] # Lista de archivos seleccionados por el usuario
     is_legal_query: bool  # Flag del Router
     is_relevant: bool     # Flag del Grader
     answer: str          # Respuesta final generada
@@ -144,11 +145,16 @@ class LegalGuardAgent:
     def retriever_node(self, state: AgentState):
         log_sequence("Cerebro: Nodo Retriever", "Consultando Azure AI Search")
         question = state["messages"][-1].content
+        filter_docs = state.get("filter_docs", [])
         
-        # Llamamos a nuestro motor híbrido RRF
-        docs = self.retriever.search_hybrid(question, top_k=3)
+        # Consultar usando el motor híbrido (RRF) con filtro opcional
+        results = self.search_engine.search_hybrid(
+            query=question, 
+            top_k=3, 
+            filter_docs=filter_docs
+        )
         
-        return {"documents": docs}
+        return {"documents": results}
 
     def grader_node(self, state: AgentState):
         log_sequence("Cerebro: Nodo Grader", "Validando relevancia de TODOS los fragmentos (Opción A)")
@@ -269,9 +275,12 @@ class LegalGuardAgent:
             return "useful"
         return "not_useful"
 
-    def run(self, query: str):
+    def run(self, query: str, filter_docs: list = None):
         """Ejecuta el grafo completo para una pregunta."""
-        inputs = {"messages": [HumanMessage(content=query)]}
+        inputs = {
+            "messages": [HumanMessage(content=query)],
+            "filter_docs": filter_docs or []
+        }
         config = {"recursion_limit": 10}
         
         result = self.workflow.invoke(inputs, config=config)

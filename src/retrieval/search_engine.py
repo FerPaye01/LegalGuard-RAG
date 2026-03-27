@@ -41,7 +41,22 @@ class AzureSearchHybridEngine:
         response = self.oai_client.embeddings.create(input=text, model=self.embedding_deployment)
         return response.data[0].embedding
         
-    def search_hybrid(self, query: str, top_k: int = 3):
+    def get_available_documents(self):
+        """Devuelve la lista única de archivos cargados en el índice de Azure."""
+        try:
+            results = self.search_client.search(
+                search_text="*",
+                select=["source_file"],
+                top=1000
+            )
+            # Extraer nombres únicos preservando el orden alfabético
+            unique_files = sorted(list(set(doc["source_file"] for doc in results if doc.get("source_file"))))
+            return unique_files
+        except Exception as e:
+            log_error("No se pudo recuperar la lista de documentos de Azure", e)
+            return []
+            
+    def search_hybrid(self, query: str, top_k: int = 3, filter_docs: list = None):
         log_sequence("Ejecutando Búsqueda Híbrida (BM25 + HNSW RRF)", query)
         
         try:
@@ -49,12 +64,19 @@ class AzureSearchHybridEngine:
             vector = self._get_embedding(query)
             vector_query = VectorizedQuery(vector=vector, k_nearest_neighbors=top_k, fields="content_vector")
             
-            # 2. Inyectar la solicitud concurrente a Azure
+            # 2. Construir filtro OData si se especificaron documentos
+            filter_str = None
+            if filter_docs:
+                filter_str = " or ".join([f"source_file eq '{f}'" for f in filter_docs])
+                log_info(f"Aplicando filtro de búsqueda: {filter_str}")
+            
+            # 3. Inyectar la solicitud concurrente a Azure
             # Al enviar search_text y vector_queries en paralelo, Azure fusiona el score (RRF).
             results = self.search_client.search(
                 search_text=query,                 # Componente Léxico (Mitiga IDs y Nombres Exactos)
                 vector_queries=[vector_query],     # Componente Vectorial (HNSW)
                 select=["id", "source_file", "content"],
+                filter=filter_str,                 # Filtro de documentos seleccionados
                 top=top_k
             )
             

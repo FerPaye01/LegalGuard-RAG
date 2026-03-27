@@ -11,11 +11,30 @@ import tempfile
 from typing import Generator
 
 # Import the Document Intelligence Script
+from azure.storage.blob import BlobServiceClient
 from src.ingestion.document_processor import extract_document_hybrid
 from src.ingestion.pipeline import index_document_from_text
 from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
 from src.metrics import run_evaluation
+
+# --- Utilidad de Sincronización Cloud (Opción B) ---
+def upload_to_blob(file_bytes, file_name):
+    """Sube el PDF original al contenedor de Azure Blob Storage."""
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "contratos-raw")
+    
+    if not conn_str:
+        return False
+        
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(conn_str)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
+        blob_client.upload_blob(file_bytes, overwrite=True)
+        return True
+    except Exception as e:
+        st.error(f"❌ Error en Sincronización Blob: {e}")
+        return False
 
 # 1. Configuración de página (SIEMPRE PRIMERO)
 st.set_page_config(
@@ -233,6 +252,11 @@ with st.sidebar:
                 status.write("Enviando a Azure Document Intelligence...")
                 status.write("Extrayendo Markdown e inyectando Tablas HTML...")
                 
+                # Sincronización Automática con Blob Storage (Opción B - Nivel Empresarial)
+                file_bytes = uploaded_file.getvalue()
+                if upload_to_blob(file_bytes, uploaded_file.name):
+                    st.toast(f"☁️ {uploaded_file.name} sincronizado en el Storage", icon="✅")
+                
                 md_result = extract_document_hybrid(tmp_path)
                 
                 if md_result:
@@ -254,12 +278,15 @@ with st.sidebar:
     # 4. Sidebar: Configuración y Status
     st.header("⚙️ Configuración")
     
-    # Dashboard de Seguridad (Toque de Experto para Demo)
-    with st.expander("🛡️ Estado de Seguridad", expanded=True):
-        st.success("✅ Content Safety: Activo")
-        st.info("🔒 Privacidad: Local (spaCy)")
-        st.caption("Anonimización PII activada para DNI, Pasaportes y Teléfonos.")
-        st.caption("Model: es_core_news_lg")
+    # Filtro de Documentos (Innovación de Orden)
+    st.subheader("🔍 Filtro de Memoria")
+    available_docs = st.session_state.agent.search_engine.get_available_documents()
+    selected_docs = st.sidebar.multiselect(
+        "Consultar solo en:",
+        options=available_docs,
+        default=[],
+        help="Si no seleccionas ninguno, se buscará en todo el índice por defecto."
+    )
     
     st.divider()
     
@@ -338,7 +365,8 @@ with col_chat:
                     with st.status("Analizando requerimiento legal...", expanded=True) as status:
                         st.write("🔍 Clasificando intención con el **Router**...")
                         
-                        result = st.session_state.agent.run(prompt)
+                        # Llamada al agente con filtro dinámico
+                        result = st.session_state.agent.run(prompt, filter_docs=selected_docs)
                         final_text = result["answer"]
                         docs = result["documents"]
                         counts = result.get("grader_counts", {})
