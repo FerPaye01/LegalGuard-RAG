@@ -502,9 +502,11 @@ Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para más detal
 
 Tras enfrentar bloqueos de cuota regional y errores de registro de proveedores, se realizó una reingeniería de la infraestructura para asegurar la alta disponibilidad del RAG en Azure.
 
-### 1. Migración Estratégica de Región
-Debido a restricciones de capacidad en East US, se migró el App Service a la región **Canada Central**.
-- **App Service Plan**: Linux (B1), optimizado para cargas de trabajo de Python y procesamiento de lenguaje natural (NLP).
+### 1. Arquitectura de Despliegue
+Para superar restricciones de cuota regional, la infraestructura se migró de `East US` a **Canada Central**.
+- **App Service (Linux - S1 Standard)**: `legal-guard-rag` (Escalado para 3.5GB RAM y Always On).
+- **Plan de Servicio**: `S1 Standard` (Computación dedicada y sin tiempos de espera).
+- **Container Registry (ACR)**: `aclgalguardprod.azurecr.io`
 - **URL de Producción**: https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net
 
 ### 2. Infraestructura de Contenedores (ACR)
@@ -563,10 +565,8 @@ Cuando el sistema presenta un "Application Error", seguimos estas rutas de diagn
 
 ### 7. Matriz de Errores Comunes y Soluciones
 
-| Error Detectado | Causa Probable | Solución Aplicada |
-| :--- | :--- | :--- |
 | `ImagePullUnauthorizedFailure` | El App Service no tiene las llaves del ACR. | Configurar `DOCKER_REGISTRY_SERVER_PASSWORD` en App Settings. |
-| `Container didn't respond to HTTP pings` | El modelo de spaCy (`es_core_news_lg`) tarda demasiado en cargar. | Aumentar `WEBSITES_CONTAINER_START_TIME_LIMIT` a 1800. |
+| `Container didn't respond to HTTP pings` | El modelo de spaCy tardaba demasiado en cargar en planes Básicos. | **Solución Final**: Escalamiento a S1 Standard + Always On. |
 | `ModuleNotFoundError` | Falta una librería en `requirements.txt`. | Ejecutar `pip freeze > requirements.txt` y hacer Push a GitHub. |
 | `JSON not valid (GitHub Actions)` | Espacios o saltos de línea en el secreto `AZURE_CREDENTIALS`. | Limpiar el JSON y volver a guardar el secreto en el repositorio. |
 
