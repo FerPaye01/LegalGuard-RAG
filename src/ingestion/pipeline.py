@@ -187,14 +187,16 @@ def get_blob_sas_url(filename: str, expiry_hours: int = 1) -> str:
         return ""
 
 def get_available_documents_enriched() -> list:
-    """Devuelve lista completa con metadatos enriquecidos para el Document Selector Pro."""
+    """Devuelve lista completa con metadatos enriquecidos para el Document Selector Pro.
+    Usa fallback: primero intenta campos enriquecidos, si falla usa solo source_file.
+    """
+    # Fase 1: Intentar con SELECT completo (campos nuevos del esquema)
     try:
         results = search_client.search(
             search_text="*",
             select=["source_file", "upload_date", "doc_summary", "doc_entities"],
             top=1000
         )
-        # Deduplicar por nombre de archivo (un doc tiene muchos chunks)
         seen = {}
         for doc in results:
             fname = doc.get("source_file", "")
@@ -202,12 +204,30 @@ def get_available_documents_enriched() -> list:
                 seen[fname] = {
                     "filename": fname,
                     "upload_date": doc.get("upload_date", ""),
-                    "summary": doc.get("doc_summary", "Sin resumen disponible."),
+                    "summary": doc.get("doc_summary", ""),
                     "entities": doc.get("doc_entities", "")
                 }
-        return sorted(seen.values(), key=lambda x: x["upload_date"], reverse=True)
+        if seen:
+            return sorted(seen.values(), key=lambda x: x["upload_date"], reverse=True)
     except Exception as e:
-        log_error("Error recuperando documentos enriquecidos", e)
+        log_warn(f"Select enriquecido falló ({e}), usando fallback básico")
+
+    # Fase 2 (Fallback): Solo source_file — siempre funciona aunque el esquema sea viejo
+    try:
+        results = search_client.search(search_text="*", select=["source_file"], top=1000)
+        seen = {}
+        for doc in results:
+            fname = doc.get("source_file", "")
+            if fname and fname not in seen:
+                seen[fname] = {
+                    "filename": fname,
+                    "upload_date": "",
+                    "summary": "Metadatos no disponibles (re-ingesta recomendada).",
+                    "entities": ""
+                }
+        return sorted(seen.values(), key=lambda x: x["filename"])
+    except Exception as e:
+        log_error("Error en fallback básico de documentos", e)
         return []
 
 def get_available_documents():
