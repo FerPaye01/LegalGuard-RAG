@@ -389,6 +389,27 @@ print(f"Cláusulas faltantes: {report['clauses_missing']}")
 
 LegalGuard integra el framework **RAGAS** para realizar auditorías de "LLM-as-a-Judge". A diferencia de las métricas tradicionales, RAGAS utiliza un modelo superior (GPT-4o) para validar la integridad de las respuestas contra el contexto recuperado.
 
+### Arquitectura de Auditoría (Hito 5)
+```mermaid
+flowchart TD
+    subgraph Frontend
+        A[Tab: Métricas RAGAS] -->|Click| B[Ejecutar Evaluación]
+        B --> C{Juez IA Activo?}
+    end
+    
+    subgraph Backend_Metrics
+        C -- Sí --> D[src/metrics.py]
+        D -->|Lee| E[Audit Logs Hito 3]
+        E --> F[Cálculo de Faithfulness / Relevancy]
+    end
+    
+    subgraph Multi_Dominio
+        G[SOP OMS PDF] -->|Pre-Cargado| H[Azure AI Search]
+        H -->|Hybrid Search| I[LegalGuardAgent]
+        I -->|Respuesta| J[Multi-Source Citations]
+    end
+```
+
 ### Métricas Clave integradas en la UI:
 - **Faithfulness (Fidelidad)**: ¿La respuesta se basa 100% en los documentos? (Detecta alucinaciones).
 - **Answer Relevancy**: ¿La respuesta realmente contesta lo que el usuario pidió?
@@ -398,6 +419,12 @@ Para ejecutar una evaluación masiva desde la terminal:
 ```bash
 python src/metrics.py
 ```
+
+### 💡 Consejos para la Demo (Magic Moment)
+Durante la presentación, se recomienda realizar una "Pregunta de Quiebre" para demostrar el soporte multi-dominio:
+1.  **Pregunta Legal**: "¿Cuáles son las causas de terminación anticipada?" (Cita contrato).
+2.  **Pregunta de Salud**: "¿Cuáles son los protocolos de bioseguridad para recién nacidos?" (Cita SOP OMS).
+*Esto demostrará que LegalGuard es una plataforma agnóstica de conocimiento.*
 
 ---
 

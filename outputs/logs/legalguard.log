@@ -162,3 +162,8 @@ have under this ...]
 2026-03-27 00:48:02,683 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
 2026-03-27 02:27:41,972 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
 2026-03-27 02:35:42,117 | LegalGuard | INFO     | 🚀 [langgraph: build_graph] >>> Ensamblando StateGraph de LegalGuard RAG
+2026-03-27 13:15:17,221 | LegalGuard | INFO     | [Iniciando pre-carga de: data/who_sop/who_sop_texto.txt]
+2026-03-27 13:15:17,242 | LegalGuard | INFO     | 🚀 [Verificando índice en AI Search] >>> contratos-index
+2026-03-27 13:15:18,800 | LegalGuard | INFO     | [El índice 'contratos-index' ya existe.]
+2026-03-27 13:15:19,171 | LegalGuard | INFO     | [Indexando who_mch_clinic_sop.pdf: particionado en 8 trozos.]
+2026-03-27 13:15:34,569 | LegalGuard | INFO     | [✅ 8 vectores inyectados de who_mch_clinic_sop.pdf]
