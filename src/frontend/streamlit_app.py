@@ -349,15 +349,15 @@ with st.sidebar:
         st.info("🌐 Búsqueda Global (todos los docs)")
 
     # --- Modal Emergente ---
-    @st.cache_data(ttl=60)
-    def get_doc_list_enriched():
-        return get_available_documents_enriched()
-
     @st.dialog("🗂️ Gestionar Documentos", width="large")
     def show_document_selector():
-        all_docs = get_doc_list_enriched()
+        with st.spinner("Cargando documentos del índice..."):
+            all_docs = get_available_documents_enriched()
+        
         if not all_docs:
-            st.warning("No hay documentos en el índice. Sube uno primero.")
+            st.warning("⚠️ No se encontraron documentos en el índice.")
+            st.caption(f"Índice consultado: `{os.getenv('AZURE_SEARCH_INDEX_NAME', 'contratos-index')}`")
+            st.info("⬆️ Sube un PDF desde el panel lateral para comenzar.")
             return
         
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -455,6 +455,10 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.md_content = None
         st.rerun()
+
+# 8. Main Layout (Opción B: 50/50)
+col_pdf, col_chat = st.columns([5, 5])
+
 with col_pdf:
     st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Mesa de Trabajo Inteligente</h3>', unsafe_allow_html=True)
     
