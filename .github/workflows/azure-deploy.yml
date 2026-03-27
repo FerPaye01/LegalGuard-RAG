@@ -9,7 +9,7 @@ on:
 env:
   ACR_NAME: aclgalguardprod
   IMAGE_NAME: legalguard-rag
-  APP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }} # Debe ser legal-guard-rag
+  APP_NAME: legal-guard-rag # Debe ser legal-guard-rag
 
 jobs:
   build-and-push:
