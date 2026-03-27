@@ -94,8 +94,7 @@ else:
     bubble_user = "#F0Fdf4"
     bubble_ai = "#FFFFFF"
     text_secondary = "#64748B"
-# 5. Optimización de Estilos (Cacheado)
-@st.cache_data
+# 5. Optimización de Estilos
 def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_color, sidebar_bg, input_bg, bubble_user, bubble_ai, text_secondary):
     return f"""
 <style>
