@@ -498,37 +498,76 @@ Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para más detal
   Construido con ❤️ por el equipo LegalGuard · Innovation Challenge March 2026
 </p>
 
-## 🚀 Hito 6: Corrección y Estabilización de Despliegue (Post-Troubleshooting)
+## 🛠️ Hito 6: Infraestructura, Despliegue y Troubleshooting Profundo
 
-Tras enfrentar bloqueos de cuota regional y errores de registro de proveedores, se realizó una reingeniería de la infraestructura para asegurar la alta disponibilidad del RAG en Azure.
+Este apartado documenta la arquitectura de nube, los desafíos técnicos enfrentados durante el despliegue en Azure App Service y las soluciones aplicadas para garantizar la estabilidad del sistema de Inteligencia Artificial Legal.
 
-### 1. Migración Estratégica de Región
-Debido a restricciones de capacidad en East US, se migró el App Service a la región **Canada Central**.
-- **App Service Plan**: Linux (B1), optimizado para cargas de trabajo de Python y procesamiento de lenguaje natural (NLP).
-- **URL de Producción**: https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net
+### 1. Arquitectura de Despliegue
+Para superar restricciones de cuota regional, la infraestructura se migró de `East US` a **Canada Central**.
+- **App Service (Linux - B1)**: `legal-guard-rag`
+- **Container Registry (ACR)**: `aclgalguardprod.azurecr.io`
+- **Pipeline CI/CD**: GitHub Actions con despliegue automatizado basado en Docker.
+- **URL de Producción**: [https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net](https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net)
 
-### 2. Infraestructura de Contenedores (ACR)
-Se habilitó un Azure Container Registry (ACR) dedicado para la gestión de imágenes Docker, resolviendo el error de `MissingSubscriptionRegistration` mediante el registro manual del proveedor en el tenant:
+### 2. Comandos Esenciales de Azure CLI (Bash)
+Estos comandos fueron utilizados para la provisión y reparación de la infraestructura desde la terminal.
 
+#### Gestión del Registro de Contenedores (ACR)
 ```bash
+# Registrar el proveedor si el servicio está bloqueado
 az provider register --namespace Microsoft.ContainerRegistry
+
+# Crear el registro de forma manual
 az acr create --resource-group rg-legalguard-prod --name aclgalguardprod --sku Basic --admin-enabled true
+
+# Recuperar credenciales de acceso para GitHub/App Service
+az acr credential show --name aclgalguardprod
 ```
 
-### 3. Configuración de Variables de Entorno (Server-Side)
-Para garantizar la seguridad PII y el cumplimiento legal, se configuraron las siguientes variables directamente en el entorno de ejecución de Azure (evitando fugas en el código fuente):
+#### Configuración del Servidor (App Service)
+```bash
+# Inyectar credenciales del ACR para permitir el "Pull" de la imagen
+az webapp config appsettings set --name legal-guard-rag --resource-group rg-legalguard-prod --settings DOCKER_REGISTRY_SERVER_URL="https://aclgalguardprod.azurecr.io"
+az webapp config appsettings set --name legal-guard-rag --resource-group rg-legalguard-prod --settings DOCKER_REGISTRY_SERVER_USERNAME="aclgalguardprod"
+az webapp config appsettings set --name legal-guard-rag --resource-group rg-legalguard-prod --settings DOCKER_REGISTRY_SERVER_PASSWORD="[TU_PASSWORD]"
 
-| Variable | Descripción |
-| :--- | :--- |
-| **WEBSITES_PORT** | 8501 (Puerto nativo para Streamlit) |
-| **AZURE_OPENAI_CHAT_DEPLOYMENT** | gpt-4o (Modelo principal de razonamiento legal) |
-| **AZURE_OPENAI_MINI_DEPLOYMENT** | gpt-4o-mini (Escaneo de riesgos a bajo costo) |
-| **AZURE_SEARCH_INDEX** | contratos-index (Vínculo con AI Search) |
-| **PRESIDIO_ENCRYPTION_KEY** | Llave simétrica para la desidentificación de datos sensibles |
+# Configuración de tiempos de arranque (Crítico para modelos de spaCy)
+az webapp config appsettings set --name legal-guard-rag --resource-group rg-legalguard-prod --settings WEBSITES_CONTAINER_START_TIME_LIMIT=1800
 
-### 4. Pipeline de CI/CD (GitHub Actions)
-Se implementó un flujo de despliegue continuo autenticado mediante Service Principal (RBAC). El flujo realiza las siguientes acciones:
-- **Auth**: Login en Azure mediante `AZURE_CREDENTIALS` (OIDC/JSON).
-- **Build**: Construcción de imagen Docker optimizada.
-- **Push**: Carga de imagen en `aclgalguardprod.azurecr.io`.
-- **Deploy**: Actualización del Web App para jalar la nueva imagen y reiniciar el servicio de Streamlit.
+# Reinicio maestro del servicio
+az webapp restart --name legal-guard-rag --resource-group rg-legalguard-prod
+```
+
+### 3. Guía de Monitoreo y Rutas de Error
+Cuando el sistema presenta un "Application Error", seguimos estas rutas de diagnóstico en orden de profundidad:
+
+- **Ruta A: Log Stream (Tiempo Real)**
+  - **Ubicación**: Portal de Azure > Web App > Monitoring > Log Stream.
+  - **Uso**: Ideal para ver errores de sintaxis de Python o fallos inmediatos al arrancar Streamlit.
+
+- **Ruta B: Consola Kudu (Diagnóstico Profundo)**
+  - **Acceso**: `https://[app-name].scm.azurewebsites.net` > Debug Console > Bash.
+  - **Directorio Crítico**: `/home/LogFiles/docker/`
+  - **Archivo Clave**: `YYYY_MM_DD_XXXX_docker.log` (contiene la interacción entre el motor de Azure y el contenedor Docker).
+
+### 4. Matriz de Errores Comunes y Soluciones
+
+| Error Detectado | Causa Probable | Solución Aplicada |
+| :--- | :--- | :--- |
+| `ImagePullUnauthorizedFailure` | El App Service no tiene las llaves del ACR. | Configurar `DOCKER_REGISTRY_SERVER_PASSWORD` en App Settings. |
+| `Container didn't respond to HTTP pings` | El modelo de spaCy (`es_core_news_lg`) tarda demasiado en cargar. | Aumentar `WEBSITES_CONTAINER_START_TIME_LIMIT` a 1800. |
+| `ModuleNotFoundError` | Falta una librería en `requirements.txt`. | Ejecutar `pip freeze > requirements.txt` y hacer Push a GitHub. |
+| `JSON not valid (GitHub Actions)` | Espacios o saltos de línea en el secreto `AZURE_CREDENTIALS`. | Limpiar el JSON y volver a guardar el secreto en el repositorio. |
+
+### 5. Recursos y Credenciales Clave
+Para la continuidad del proyecto, el equipo debe conocer los siguientes activos:
+- **Service Principal**: Identidad asignada a GitHub para gestionar Azure.
+- **Secretos de Repositorio**: `AZURE_CREDENTIALS` (JSON de acceso), `ACR_NAME`, `ACR_USERNAME`, `ACR_PASSWORD`, `AZURE_WEBAPP_NAME`.
+- **Variables de Entorno (Server-Side)**: Configuración de OpenAI (GPT-4o), Azure Search y claves de cifrado de Presidio inyectadas directamente en la nube para máxima seguridad.
+
+### 🔄 Ciclo de Actualización
+A partir de este hito, el flujo de actualización es automático:
+1. **Modificar Código**: Realizar cambios en la lógica local.
+2. **Git Push**: `git push origin main`.
+3. **Auto-Build**: GitHub Actions construye la imagen y la sube al ACR.
+4. **Auto-Deploy**: Azure detecta la nueva imagen y reinicia el servicio con la versión actualizada.
