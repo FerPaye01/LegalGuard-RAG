@@ -28,6 +28,8 @@ class AgentState(TypedDict):
     is_relevant: bool     # Flag del Grader
     answer: str          # Respuesta final generada
     grader_counts: dict  # Metadatos para la UI (total_found, total_relevant)
+    persona: str         # Perfil profesional del usuario (Legal, Financiero, Salud)
+    code_output: str     # Resultado de la Calculadora Legal (Dynamic Sessions)
 
 # --- Modelos de Datos para Estructuración ---
 class RouteQuery(BaseModel):
@@ -55,9 +57,13 @@ class LegalGuardAgent:
             temperature=0
         )
         
-        # Modelo rápido "mini" para el Grader si estuviera disponible, 
-        # sino usamos el mismo deployment (Opción B)
-        self.fast_llm = self.llm 
+        # GPT-4o-mini para tareas rápidas (Grader, Router, Calculadora)
+        mini_deployment = os.getenv("AZURE_OPENAI_MINI_DEPLOYMENT", os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"))
+        self.fast_llm = AzureChatOpenAI(
+            azure_deployment=mini_deployment,
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+            temperature=0
+        )
         
         # Instanciar el motor de búsqueda híbrido que ya validamos
         self.search_engine = AzureSearchHybridEngine()
@@ -83,23 +89,23 @@ class LegalGuardAgent:
         workflow.add_node("grade_docs", self.grader_node)
         workflow.add_node("generate", self.generator_node)
         workflow.add_node("general_answer", self.general_node)
+        workflow.add_node("calculate", self.calculator_node)
 
         # Configurar Flujo (Edges)
         workflow.set_entry_point("router")
         
-        # Lógica Condicional del Router
         workflow.add_conditional_edges(
             "router",
             self.route_decision,
             {
                 "legal": "retrieve",
-                "general": "general_answer"
+                "general": "general_answer",
+                "math": "calculate"
             }
         )
         
         workflow.add_edge("retrieve", "grade_docs")
         
-        # Lógica Condicional del Grader
         workflow.add_conditional_edges(
             "grade_docs",
             self.grade_decision,
@@ -111,6 +117,7 @@ class LegalGuardAgent:
         
         workflow.add_edge("generate", END)
         workflow.add_edge("general_answer", END)
+        workflow.add_edge("calculate", END)
 
         return workflow.compile()
 
@@ -131,7 +138,13 @@ class LegalGuardAgent:
 
         log_sequence("Cerebro: Nodo Router", "Clasificando intención")
         
-        structured_llm = self.llm.with_structured_output(RouteQuery)
+        structured_llm = self.fast_llm.with_structured_output(RouteQuery)
+        
+        # Detectar intención matemática (para Calculadora Legal)
+        math_keywords = ["cuánto", "cuanto", "suma", "total", "calcula", "monto", "penalidad total", "sumar", "promedio", "cuantos", "cuántos"]
+        if any(kw in question.lower() for kw in math_keywords):
+            log_info("Detectada intención matemática → enrutando a Calculadora Legal")
+            return {"is_legal_query": True}
         
         system = """Eres un experto en enrutamiento legal y documental. 
         Si el usuario pregunta algo sobre leyes, contratos, NDAs, plazos, o sobre el CONTENIDO de cualquier documento o procedimiento (SOP) cargado, 
@@ -237,6 +250,16 @@ class LegalGuardAgent:
         log_sequence("Cerebro: Nodo Generator", "Sintetizando respuesta con citas HTML y anti-contradicciones")
         question = state["messages"][-1].content
         docs = state["documents"]
+        persona = state.get("persona", "Orchestrator")
+        
+        # Instrucciones de rol por persona
+        persona_instructions = {
+            "Legal": "Enfoca tu respuesta en obligaciones, derechos, cláusulas contractuales y posible jurisprudencia aplicable. Usa terminología jurídica precisa.",
+            "Financiero": "Destaca montos, penalidades económicas, plazos de pago, condiciones financieras y proyecciones de costo. Habla en cifras cuando sea posible.",
+            "Salud": "Prioriza normativas sanitarias, protocolos de bioseguridad, regulaciones de salud pública y procedimientos clínicos relevantes.",
+            "Orchestrator": "Proporciona una visión equilibrada y completa del documento, balanceando aspectos legales, financieros y operativos."
+        }
+        role_instruction = persona_instructions.get(persona, persona_instructions["Orchestrator"])
         
         # Contexto enriquecido con fecha de ingesta para resolución de contradicciones
         context = "\n\n".join([
@@ -244,7 +267,9 @@ class LegalGuardAgent:
             for d in docs
         ])
         
-        system = """Eres LegalGuard, un asistente legal de IA de nivel empresarial. Sigue estas reglas SIN EXCEPCIÓN:
+        system = f"""Eres LegalGuard, un asistente legal de IA de nivel empresarial. Sigue estas reglas SIN EXCEPCIÓN:
+
+**ROL DEL USUARIO: {persona.upper()}** — {role_instruction}
 
 1.  **BASE DOCUMENTAL**: Responde basándote ÚNICAMENTE en el contexto proporcionado. Si la info no está, admítelo: 'No encontré información suficiente en los documentos para responder esto.'
 
@@ -281,6 +306,71 @@ class LegalGuardAgent:
                 return {"answer": "Lo siento, la respuesta a esta consulta fue bloqueada por las políticas de seguridad de contenido de Azure (Content Safety). Por favor, intenta reformular tu pregunta."}
             raise e
 
+    def calculator_node(self, state: AgentState):
+        """Nodo Calculadora Legal: ejecuta Python en Azure Dynamic Sessions."""
+        self.timer.stop("router")
+        self.timer.start("calculator")
+        log_sequence("Cerebro: Nodo Calculadora", "Ejecutando código Python en Dynamic Sessions (Azure)")
+        question = state["messages"][-1].content
+        
+        # Preámbulo inmutable según el Skill de Dynamic Sessions
+        PREAMBULO = """
+import pandas as pd
+import re
+import json
+
+# Función de limpieza de monedas (evita NaN silencioso de errors='coerce')
+limpiar_moneda = lambda val: float(re.sub(r'[^\\d.]', '', str(val))) if re.sub(r'[^\\d.]', '', str(val)) else 0.0
+"""
+        
+        pool_endpoint = os.getenv("AZURE_CONTAINER_APP_SESSION_POOL")
+        
+        if not pool_endpoint:
+            self.timer.stop("calculator")
+            return {"answer": "⚠️ La Calculadora Legal requiere Azure Container Apps. Configura `AZURE_CONTAINER_APP_SESSION_POOL`.", "code_output": ""}
+        
+        try:
+            from langchain_azure_dynamic_sessions import SessionsPythonREPLTool
+            
+            repl_tool = SessionsPythonREPLTool(pool_management_endpoint=pool_endpoint)
+            
+            # Generar el script Python con GPT-4o-mini
+            code_prompt = f"""El usuario pregunta: '{question}'
+
+Genera un script Python usando SOLO la función limpiar_moneda() para limpiar valores monetarios.
+Usa SIEMPRE pd.to_numeric(..., errors='raise') NUNCA errors='coerce'.
+El script debe terminar con un print() del resultado en formato JSON: {{'resultado': valor, 'descripcion': 'texto'}}
+Genera SOLO el código Python, sin explicaciones ni markdown."""
+            
+            code_response = self.fast_llm.invoke(code_prompt)
+            generated_code = code_response.content.strip().replace("```python", "").replace("```", "")
+            
+            # Empaquetar con el preámbulo inmutable
+            final_code = PREAMBULO + "\n" + generated_code
+            
+            # Ejecutar en la Micro-VM de Azure
+            log_info(f"Ejecutando en Dynamic Sessions:\n{final_code[:200]}...")
+            result_str = repl_tool.invoke(final_code)
+            
+            self.timer.stop("calculator")
+            answer = f"""🧮 **Resultado de la Calculadora Legal**
+
+{result_str}
+
+<details><summary>Ver código Python ejecutado</summary>
+
+```python
+{final_code}
+```
+
+</details>"""
+            return {"answer": answer, "code_output": str(result_str)}
+            
+        except Exception as e:
+            log_error("Error en Calculadora Legal", e)
+            self.timer.stop("calculator")
+            return {"answer": f"Error en la Calculadora Legal: {str(e)[:200]}", "code_output": "error"}
+
     def general_node(self, state: AgentState):
         log_sequence("Cerebro: Nodo General", "Charla no-legal")
         question = state["messages"][-1].content
@@ -295,6 +385,10 @@ class LegalGuardAgent:
     # --- Funciones de Lógica de Aristas (Edges) ---
 
     def route_decision(self, state: AgentState):
+        question = state["messages"][-1].content
+        math_keywords = ["cuánto", "cuanto", "suma", "total", "calcula", "monto", "penalidad total", "sumar", "promedio", "cuántos", "cuantos"]
+        if any(kw in question.lower() for kw in math_keywords):
+            return "math"
         if state["is_legal_query"]:
             return "legal"
         return "general"
@@ -304,13 +398,15 @@ class LegalGuardAgent:
             return "useful"
         return "not_useful"
 
-    def run(self, query: str, filter_docs: list = None):
+    def run(self, query: str, filter_docs: list = None, persona: str = "Orchestrator"):
         """Ejecuta el grafo completo para una pregunta."""
         self.timer.reset()
         
         inputs = {
             "messages": [HumanMessage(content=query)],
-            "filter_docs": filter_docs or []
+            "filter_docs": filter_docs or [],
+            "persona": persona,
+            "code_output": ""
         }
         config = {"recursion_limit": 10}
         
@@ -320,13 +416,14 @@ class LegalGuardAgent:
         telemetry_report = self.timer.get_report()
         track_node_latency(telemetry_report)
         
-        # Registro de Auditoría (Hito 3)
+        # Registro de Auditoría
         self.governance.log_interaction(
             query=query,
             answer=result["answer"],
             documents=result.get("documents", []),
             metadata={
                 "is_legal": result.get("is_legal_query"),
+                "persona": persona,
                 "telemetry": telemetry_report
             }
         )
@@ -335,7 +432,8 @@ class LegalGuardAgent:
             "answer": result["answer"],
             "documents": result.get("documents", []),
             "grader_counts": result.get("grader_counts", {}),
-            "telemetry": telemetry_report
+            "telemetry": telemetry_report,
+            "code_output": result.get("code_output", "")
         }
 
 if __name__ == "__main__":

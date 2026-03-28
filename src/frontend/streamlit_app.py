@@ -21,6 +21,7 @@ from src.ingestion.pipeline import (
 from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
 from src.metrics import run_evaluation, eval_single_response
+from src.comparator import compare_contract_versions
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -657,6 +658,42 @@ col_pdf, col_chat = st.columns([5, 5])
 with col_pdf:
     st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Mesa de Trabajo Inteligente</h3>', unsafe_allow_html=True)
     
+    # --- COMPARADOR DE VERSIONES (sección superior) ---
+    with st.expander("🔀 Comparador de Versiones de Contratos", expanded=False):
+        all_doc_names = [d["name"] for d in get_available_documents_enriched()]
+        if len(all_doc_names) < 2:
+            st.info("Necesitas al menos 2 documentos indexados para comparar versiones.")
+        else:
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                doc_v1 = st.selectbox("📄 Versión Anterior", all_doc_names, key="compare_v1")
+            with col_v2:
+                other_docs = [d for d in all_doc_names if d != doc_v1]
+                doc_v2 = st.selectbox("📄 Versión Nueva", other_docs, key="compare_v2") if other_docs else None
+            
+            if doc_v2 and st.button("🔍 Comparar Contratos", use_container_width=True, type="primary"):
+                with st.spinner(f"Analizando diferencias entre {doc_v1} y {doc_v2}..."):
+                    compare_result = compare_contract_versions(doc_v1, doc_v2)
+                    if "error" in compare_result:
+                        st.error(compare_result["error"])
+                    else:
+                        st.success(f"✅ {compare_result.get('resumen', 'Comparación completada')}")
+                        cambios = compare_result.get("cambios", [])
+                        if cambios:
+                            for cambio in cambios:
+                                tipo = cambio.get("tipo", "modificado")
+                                impacto = cambio.get("impacto", "medio")
+                                color = {"nuevo": "#10B981", "eliminado": "#EF4444", "modificado": "#F59E0B"}.get(tipo, "#64748B")
+                                icono = {"nuevo": "➕", "eliminado": "➖", "modificado": "⚡"}.get(tipo, "•")
+                                impact_badge = {"alto": "🔴", "medio": "🟡", "bajo": "🟢"}.get(impacto, "🟡")
+                                st.markdown(f"""
+                                    <div style="border-left: 4px solid {color}; padding: 10px 15px; margin: 8px 0; background: rgba(0,0,0,0.1); border-radius: 6px;">
+                                        <b>{icono} {cambio.get('clausula', 'Cláusula')} {impact_badge} Impacto {impacto.upper()}</b><br>
+                                        <i style="color:#94A3B8; font-size:0.85rem;">Antes: {str(cambio.get('antes', 'N/A'))[:150]}...</i><br>
+                                        <span style="font-size:0.85rem;">Después: {str(cambio.get('despues', 'N/A'))[:150]}...</span>
+                                    </div>
+                                """, unsafe_allow_html=True)
+    
     # Fuentes disponibles: El subido actualmente + los seleccionados en el filtro
     available_for_preview = []
     if st.session_state.md_content:
@@ -869,8 +906,9 @@ with col_chat:
                         
                         st.write("🔍 Clasificando intención con el **Router**...")
                         
-                        # Llamada al agente
-                        result = st.session_state.agent.run(prompt, filter_docs=selected_docs)
+                        # Llamada al agente con persona
+                        persona_actual = st.session_state.get("selected_persona", "Orchestrator")
+                        result = st.session_state.agent.run(prompt, filter_docs=selected_docs, persona=persona_actual)
                         final_text = result["answer"]
                         docs = result["documents"]
                         counts = result.get("grader_counts", {})
