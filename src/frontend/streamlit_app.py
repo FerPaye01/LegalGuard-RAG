@@ -39,6 +39,60 @@ from src.metrics import (
 )
 from src.comparator import compare_contract_versions
 
+# --- CONFIGURACIÓN DE RUTAS GLOBALES ---
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+AUDIT_LOG_PATH = os.path.join(ROOT_DIR, "outputs/governance/audit_log.jsonl")
+
+# --- MOTOR DE VISTA PREVIA & RIESGO (Global) ---
+def get_preview_content_internal(selection):
+    """Helper para obtener el contenido de vista previa según la selección."""
+    if selection == "📄 Ingesta Actual":
+        return st.session_state.get("md_content", None)
+    else:
+        try:
+            from src.retrieval.search_engine import get_search_client
+            s_client = get_search_client()
+            results = list(s_client.search(
+                search_text="*",
+                filter=f"source_file eq '{selection}'",
+                top=12,
+                select=["content"]
+            ))
+            if results:
+                return "\n\n".join([r["content"] for r in results])
+        except Exception as e:
+            return f"⚠️ Error recuperando '{selection}': {e}"
+    return None
+
+def render_legal_content_style(text, title="Documento"):
+    """Formatea el contenido con estética Premium Legal."""
+    import re
+    # Importante: border_color y color_text deben ser globales o pasarse
+    border_color = "#3B82F6" 
+    color_text = "#FFFFFF" if st.session_state.get("dark_mode", False) else "#000000"
+    
+    content = text if text else "Sin contenido disponible."
+    
+    patterns = [
+        r"(Article\s+\d+)", r"(Sección\s+\d+)", r"(SOP\s+No\.\s+\d+)", 
+        r"(Cláusula\s+\d+)", r"(Standard\s+Operational\s+Procedure\s+No\.\s+\d+)"
+    ]
+    for p in patterns:
+        content = re.sub(p, r'<span class="legal-section-badge">\1</span>', content, flags=re.IGNORECASE)
+
+    return f"""
+    <div class="legal-document-viewer">
+        <div class="legal-document-card">
+            <div style="margin-bottom: 20px; border-bottom: 1px solid {border_color}; padding-bottom: 10px;">
+                <span style="font-weight: 700; color: #3B82F6; font-size: 1.1rem;">📄 {title}</span>
+            </div>
+            <div style="font-size: 0.95rem; color: {color_text};">
+                {content}
+            </div>
+        </div>
+    </div>
+    """
+
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
     """Sube el PDF original al contenedor de Azure Blob Storage."""
@@ -707,55 +761,9 @@ with col_pdf:
                     [d for d in available_for_preview if d != base_doc_selection],
                     index=0 if len(available_for_preview) > 1 else None
                 )
-
-        def render_legal_content(text, title="Documento"):
-            """Formatea el contenido con estética Premium Legal."""
-            import re
             
-            # Limpieza y preparación
-            content = text if text else "Sin contenido disponible."
-            
-            # Resaltado de Secciones/Artículos (Regex simple)
-            # Busca patrones como "Article 1", "Sección 2", "SOP No. 5", "Cláusula 4"
-            patterns = [
-                r"(Article\s+\d+)", r"(Sección\s+\d+)", r"(SOP\s+No\.\s+\d+)", 
-                r"(Cláusula\s+\d+)", r"(Standard\s+Operational\s+Procedure\s+No\.\s+\d+)"
-            ]
-            for p in patterns:
-                content = re.sub(p, r'<span class="legal-section-badge">\1</span>', content, flags=re.IGNORECASE)
-
-            html = f"""
-            <div class="legal-document-viewer">
-                <div class="legal-document-card">
-                    <div style="margin-bottom: 20px; border-bottom: 1px solid {border_color}; padding-bottom: 10px;">
-                        <span style="font-weight: 700; color: #3B82F6; font-size: 1.1rem;">📄 {title}</span>
-                    </div>
-                    <div style="font-size: 0.95rem; color: {color_text};">
-                        {content}
-                    </div>
-                </div>
-            </div>
-            """
-            return html
-
-        def get_preview_content(selection):
-            """Helper para obtener el contenido de vista previa según la selección."""
-            if selection == "📄 Ingesta Actual":
-                return st.session_state.md_content
-            else:
-                try:
-                    s_client = get_search_client()
-                    results = list(s_client.search(
-                        search_text="*",
-                        filter=f"source_file eq '{selection}'",
-                        top=12, # Aumentamos el contexto para el nuevo visor
-                        select=["content"]
-                    ))
-                    if results:
-                        return "\n\n".join([r["content"] for r in results])
-                except Exception as e:
-                    return f"⚠️ Error recuperando '{selection}': {e}"
-            return None
+            # Persistir selección para el Risk Scanner
+            st.session_state.last_previewed_doc = base_doc_selection
 
         # Renderizado de la Mesa de Trabajo Premium
         bg_info = "#1E293B" if st.session_state.dark_mode else "#E0F2FE"
@@ -770,11 +778,11 @@ with col_pdf:
         if compare_mode and ref_doc_selection:
             col_left, col_right = st.columns(2)
             with col_left:
-                st.markdown(render_legal_content(get_preview_content(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
+                st.markdown(render_legal_content_style(get_preview_content_internal(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
             with col_right:
-                st.markdown(render_legal_content(get_preview_content(ref_doc_selection), ref_doc_selection), unsafe_allow_html=True)
+                st.markdown(render_legal_content_style(get_preview_content_internal(ref_doc_selection), ref_doc_selection), unsafe_allow_html=True)
         else:
-            st.markdown(render_legal_content(get_preview_content(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
+            st.markdown(render_legal_content_style(get_preview_content_internal(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
 
     elif not st.session_state.pdf_collapsed:
         st.markdown(f"""
@@ -875,13 +883,24 @@ with col_chat:
 
     with tab_risk:
         st.markdown('<h1 class="main-header">Scanner de Riesgo Global</h1>', unsafe_allow_html=True)
-        if st.session_state.md_content:
-            if st.button("🔎 Ejecutar Auditoría Profunda", use_container_width=True, type="primary"):
-                try:
-                    from src.risk_scanner import scan_contract
-                    st.session_state.risk_report = scan_contract(st.session_state.md_content)
-                except Exception as e: st.error(f"Error en el escáner: {e}")
-            if "risk_report" in st.session_state:
+        
+        # Determinar qué contenido auditar (Ingesta actual o el seleccionado en la mesa)
+        target_doc = st.session_state.get("last_previewed_doc", "📄 Ingesta Actual")
+        content_to_scan = get_preview_content_internal(target_doc)
+        
+        if content_to_scan:
+            st.info(f"📋 Documento listo para auditoría: **{target_doc}**")
+            if st.button("🔎 Ejecutar Auditoría Profunda (CUAD)", use_container_width=True, type="primary"):
+                with st.status(f"Analizando riesgos en {target_doc}...", expanded=True):
+                    try:
+                        from src.risk_scanner import scan_contract
+                        st.session_state.risk_report = scan_contract(content_to_scan)
+                    except Exception as e: 
+                        st.error(f"Error en el escáner: {e}")
+        else:
+            st.warning("⚠️ No hay contenido cargado para auditar. Selecciona un documento en la Mesa de Trabajo.")
+
+        if "risk_report" in st.session_state:
                 report = st.session_state.risk_report
                 met_col1, met_col2, met_col3 = st.columns([1,1,1])
                 with met_col1: st.metric("Risk Score", f"{report.total_score:.1f} / 100")
@@ -969,9 +988,8 @@ with col_chat:
 
     st.markdown("---")
     with st.expander("🛡️ Trazabilidad y Compliance"):
-        log_path = "outputs/governance/audit_log.jsonl"
-        if os.path.exists(log_path):
-            with open(log_path, "r", encoding="utf-8") as f:
+        if os.path.exists(AUDIT_LOG_PATH):
+            with open(AUDIT_LOG_PATH, "r", encoding="utf-8") as f:
                 audit_data = f.read()
             st.download_button(
                 label="📂 Descargar Log Completo (JSONL)",
@@ -981,7 +999,11 @@ with col_chat:
                 use_container_width=True
             )
         else:
-            st.error("Archivo de auditoría no encontrado.")
+            st.error(f"Archivo de auditoría no encontrado en: {AUDIT_LOG_PATH}")
+            if st.button("🔧 Re-inicializar Auditoría"):
+                from src.governance import GovernanceManager
+                GovernanceManager(log_path=AUDIT_LOG_PATH)
+                st.rerun()
 
     if not (st.session_state.md_content or selected_docs):
         st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")

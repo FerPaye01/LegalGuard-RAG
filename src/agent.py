@@ -523,6 +523,18 @@ IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estr
             dominio="health" if persona == "Salud" else "legal",
             tokens=result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
         )
+        
+        # Registro Inmutable de Gobernanza (Opción B: Compliance)
+        self.governance.log_interaction(
+            query=query,
+            answer=result["answer"],
+            documents=result.get("documents", []),
+            metadata={
+                "persona": persona,
+                "tokens": result.get("tokens"),
+                "latency_ms": telemetry_report.get("total_ms")
+            }
+        )
 
         return {
             "answer": result["answer"],
