@@ -98,6 +98,13 @@ class AzureSearchHybridEngine:
             log_error("Fallo durante la búsqueda en AI Search", e)
             return []
 
+def get_search_client():
+    """Helper global para obtener el cliente de búsqueda sin instanciar todo el motor."""
+    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+    key = os.getenv("AZURE_SEARCH_API_KEY")
+    index = os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index")
+    return SearchClient(endpoint=endpoint, index_name=index, credential=AzureKeyCredential(key))
+
 if __name__ == "__main__":
     # Test Unitario Directo para confirmar al Usuario
     test_query = "confidential information and disclosures"

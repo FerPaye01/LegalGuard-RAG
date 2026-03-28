@@ -829,8 +829,63 @@ with col_chat:
                     for j, doc in enumerate(msg["documents"]):
                         st.markdown(f"**Fragmento {j+1} - {doc['source_file']}**")
                         st.info(doc["content"])
-            else:
-                st.caption("ℹ️ *Auditoría no disponible: Cálculo Interno.*")
+            
+            # --- EVALUACIÓN Y FEEDBACK (Hito 18 Fix) ---
+            col_fb1, col_fb2, col_fb3, _ = st.columns([1, 1, 3, 5])
+            with col_fb1:
+                if st.button("👍", key=f"like_{idx}", help="Respuesta útil"):
+                    st.toast("¡Gracias por tu feedback!")
+            with col_fb2:
+                if st.button("👎", key=f"dislike_{idx}", help="Respuesta no útil"):
+                    st.toast("Lo tendremos en cuenta para mejorar.")
+            with col_fb3:
+                if st.button("🛡️ Auditoría RAGAS", key=f"audit_{idx}", use_container_width=True, help="Evaluar con Juez IA"):
+                    with st.spinner("El Juez IA está analizando la respuesta..."):
+                        # Usar la función de evaluación individual
+                        result_eval = eval_single_response(msg["content"], [d["content"] for d in msg.get("documents", [])])
+                        st.session_state[f"eval_{idx}"] = result_eval
+            
+            if f"eval_{idx}" in st.session_state:
+                ev = st.session_state[f"eval_{idx}"]
+                f_score = ev.get('faithfulness', 0)
+                r_score = ev.get('answer_relevancy', 0)
+                f_color = "green" if f_score >= 0.7 else "orange"
+                r_color = "green" if r_score >= 0.7 else "orange"
+                st.markdown(f"""
+                <div style="font-size: 0.75rem; color: #64748B; margin-top: 5px;">
+                    📊 <b>Veredicto IA:</b> 
+                    Fidelidad <span style="color: {f_color};">{f_score:.0%}</span> | 
+                    Relevancia <span style="color: {r_color};">{r_score:.0%}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # --- INDICADORES DE LATENCIA (Hito 18 Restore) ---
+            if "telemetry" in msg:
+                telemetry = msg["telemetry"]
+                nodes_timing = telemetry.get("nodes", {})
+                if nodes_timing:
+                    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+                    t_cols = st.columns(4)
+                    # Mapeo de nombres técnicos a amigables
+                    display_map = {
+                        "retriever_node": "🔍 Search",
+                        "generator_node": "✍️ Synthesis",
+                        "governance_node": "🛡️ Safety",
+                        "audit_node": "📝 Audit"
+                    }
+                    # Seleccionar los 4 principales o los que existan
+                    items = list(nodes_timing.items())
+                    for i in range(4):
+                        if i < len(items):
+                            node_id, ms = items[i]
+                            with t_cols[i]:
+                                label = display_map.get(node_id, node_id.split('_')[0].capitalize())
+                                st.markdown(f"""
+                                <div style="text-align: center; background: #1E293B; padding: 5px; border-radius: 6px; border: 1px solid #334155;">
+                                    <div style="font-size: 0.65rem; color: #94A3B8;">{label}</div>
+                                    <div style="font-size: 0.85rem; font-weight: 700; color: #3B82F6;">{ms}ms</div>
+                                </div>
+                                """, unsafe_allow_html=True)
 
         # 1. Historial en Expander (Todo menos el último bloque)
         if len(mensajes) > 2:
@@ -872,7 +927,8 @@ with col_chat:
                         "role": "assistant",
                         "content": result["answer"],
                         "documents": result["documents"],
-                        "persona": persona_actual
+                        "persona": persona_actual,
+                        "telemetry": result.get("telemetry", {})
                     })
                     status.update(label="Análisis Finalizado", state="complete")
                 
@@ -932,20 +988,15 @@ with col_chat:
         scores = eval_data.get("scores", {})
         is_benchmark = eval_data.get("is_benchmark", False)
         
-        m1, m2, m3, m4 = st.columns(4)
-        def render_metric_card(col, label, val, desc, mode_active=True):
-            if not mode_active:
-                val_str, cbar = "N/A", "#94A3B8"
-            else:
-                val_str = f"{val:.0%}"
-                cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
+        m1, m2 = st.columns(2)
+        def render_metric_card(col, label, val, desc):
+            val_str = f"{val:.0%}"
+            cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
             with col:
-                st.markdown(f'<div class="metric-card"><div style="font-size: 0.75rem; color: #64748B;">{label}</div><div style="font-size: 1.5rem; font-weight: 700; color: {cbar};">{val_str}</div><div style="font-size: 0.65rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div style="font-size: 0.85rem; color: #64748B;">{label}</div><div style="font-size: 1.8rem; font-weight: 700; color: {cbar};">{val_str}</div><div style="font-size: 0.75rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
         
-        render_metric_card(m1, "Fidelidad", scores.get("faithfulness", 0), "Bases documentales.")
-        render_metric_card(m2, "Relevancia", scores.get("answer_relevancy", 0), "Respuesta directa.")
-        render_metric_card(m3, "Precisión", scores.get("context_precision", 0), "Calidad Azure Search.", mode_active=is_benchmark)
-        render_metric_card(m4, "Recall", scores.get("context_recall", 0), "Cobertura de info.", mode_active=is_benchmark)
+        render_metric_card(m1, "Fidelidad (Faithfulness)", scores.get("faithfulness", 0), "Alineación factual con las bases documentales.")
+        render_metric_card(m2, "Relevancia (Answer Relevancy)", scores.get("answer_relevancy", 0), "Relación directa entre la pregunta y la respuesta.")
         
         if not is_benchmark:
             st.info("💡 **Nota**: Precisión y Recall solo se activan en modo **Benchmark** (con Ground Truth). En **Auditoría en Vivo**, evaluamos la fidelidad y relevancia de tus interacciones reales.")
