@@ -649,16 +649,16 @@ A partir de este hito, el flujo de actualización es automático:
 
 ## 🚀 Hito 7: Document Selector Pro (Gestión Documental Avanzada)
 
-Se transformó el selector de documentos en una herramienta de grado empresarial con una experiencia de usuario superior basada en una arquitectura de 4 capas.
+Se transformó el selector de documentos en una herramienta de grado empresarial con una arquitectura de 4 capas y metadatos enriquecidos.
 
-### 🏗️ Arquitectura de 4 Capas (Código Representativo)
+### 🏗️ Arquitectura de 4 Capas (Campos Clave)
 
-| Capa | Componente | Función Técnica |
+| Capa | Componente | Campos/Funciones Clave |
 | :--- | :--- | :--- |
-| **Capa 1: Esquema** | `src/ingestion/pipeline.py` | Definición de campos `upload_date`, `doc_summary` y `doc_entities` en Azure AI Search. |
-| **Capa 2: Ingesta** | `generate_doc_metadata(text)` | Procesamiento LLM (GPT-4o-mini) para extraer resúmenes y entidades clave en tiempo real. |
-| **Capa 3: Acceso** | `get_blob_sas_url(filename)` | Generación dinámica de URLs firmadas (SAS Tokens) con expiración para seguridad. |
-| **Capa 4: UI** | `st.dialog()` | Interfaz modal con pestañas ("Recientes" / "Base") y tarjetas premium de documentos. |
+| **Capa 1: Esquema** | `pipeline.py` | `upload_date` (Simple), `doc_summary` (Searchable), `doc_entities` (Searchable). |
+| **Capa 2: Ingesta** | `generate_doc_metadata` | Prompt JSON: `{"summary": "2-3 líneas", "entities": "partes, montos, fechas"}`. |
+| **Capa 3: Acceso** | `get_blob_sas_url` | `generate_blob_sas(permission=read, expiry=1h)` → URL firmada temporal. |
+| **Capa 4: UI** | `st.dialog()` | `@st.dialog`, `st.tabs(["📅 Recientes", "🗄️ Base"])`, `col_eye.link_button`. |
 
 ### 🔄 Flujo de Selección Completo
 
@@ -670,38 +670,40 @@ sequenceDiagram
     participant Blob as Azure Blob
 
     U->>UI: Click "🗂️ Gestionar Documentos"
-    UI->>Search: Busca todos los docs + metadatos enriquecidos
-    Search-->>UI: Lista de documentos (Resumen + Entidades)
+    UI->>Search: Busca `select=["source_file", "upload_date", "doc_summary", "doc_entities"]`
+    Search-->>UI: Lista de documentos enriquecidos
     UI->>U: Modal con 2 Tabs (Recientes / Base de Conocimiento)
-    U->>UI: Selecciona documentos
-    U->>Blob: Click 👁️ → get_blob_sas_url() → Previsualización
+    U->>UI: Marca Checkboxes → `st.session_state.selected_docs`
+    U->>Blob: Click 👁️ → Genera SAS URL Temporal
     U->>UI: Click "Usar seleccionados"
-    UI->>UI: Actualiza st.session_state.selected_docs
-    UI-->>U: Chat habilitado con contexto blindado
+    UI-->>U: Chat habilitado con contexto blindado por `doc_ids`
 ```
 
 ---
 
 ## 🏗️ Hito 8: Mesa de Trabajo (Split-screen XAI / Workspace)
 
-Implementación de la interfaz de "Auditoría en Paralelo" para reducir la carga cognitiva mediante una mesa de trabajo dinámica.
+Implementación de la interfaz de "Auditoría en Paralelo" con sincronización bidireccional y estética premium.
 
-### 🛠️ Desglose de Implementación
+### 🛠️ Desglose Técnico de Capacidades
 
-- **Capa 1: Layout Side-by-Side**: Uso de `st.columns([5, 5])` o `[4, 6]` para una visualización equilibrada del PDF y el Chat.
-- **Capa 2: Lógica de Filtro**: El Agente RAG recibe una lista de `doc_ids` filtrados, asegurando que la respuesta se base **solo** en los documentos seleccionados en la mesa de trabajo.
-- **Capa 3: Sincronización de Citas (Scroll Sync)**: Al hacer clic en una cita del chat, el sistema inyecta una señal al visor lateral para saltar al fragmento exacto del documento.
-- **Capa 4: Estética Premium**: Implementación de clases CSS como `.legal-document-card` para tarjetas con efectos de hover y sombras suaves.
+- **Capa 1: Layout Dual**: Estructura `st.columns([5, 5])` que permite la coexistencia del visor de documentos y el chat de auditoría.
+- **Capa 2: Lógica de Contexto**: La función `get_preview_content` recupera dinámicamente el contenido de Azure Search usando filtros por `source_file` para el **Documento Principal** y el de **Referencia**.
+- **Capa 3: Scroll Sync (Wow Factor)**: Script JavaScript inyectado que usa un `TreeWalker` para localizar textos citados y ejecutar un `scrollIntoView({behavior: 'smooth'})`.
+- **Capa 4: CSS de Grado Legal**: 
+  - `.legal-document-card`: Sombreado suave y bordes redondeados.
+  - `.legal-section-badge`: Resaltado automático de "Artículos" o "Cláusulas" vía Regex.
+  - `.sync-found`: Animación `@keyframes sync-blink` para resaltar fragmentos sincronizados.
 
 ### 📐 Diagrama de Mesa de Trabajo
 
 ```mermaid
 flowchart LR
-    A[Selector de Mesa] -->|Define Contexto| B(Agente LangGraph)
-    B -->|Genera Respuesta| C[Chat Interactivo]
-    C -->|Click en Cita| D{Sincronización}
-    D -->|Scroll Automático| E[Visor PDF Lateral]
-    E -->|Previsualiza| F[Fragmento Exacto]
+    A[Selector de Mesa] -->|Filtra por doc_id| B(Agente LangGraph)
+    B -->|Genera Respuesta con Citaciones| C[Chat Interactivo]
+    C -->|Click en .cite-highlight| D{JS Scroll Sync}
+    D -->|Busca Nodo de Texto| E[Visor PDF Lateral]
+    E -->|Añade clase .sync-found| F[Highlight + Scroll Suave]
 ```
 
 ---
