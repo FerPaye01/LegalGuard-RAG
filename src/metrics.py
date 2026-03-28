@@ -80,9 +80,20 @@ def run_evaluation():
         # Guardar resultados históricos
         output_dir = Path("outputs/metrics")
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Guardar CSV
         df_results.to_csv(output_dir / "latest_ragas_report.csv", index=False)
         
-        return result
+        # Guardar JSON (Para Compliance)
+        json_results = {
+            "timestamp": datetime.now().isoformat(),
+            "mean_scores": {k: float(v) for k, v in result.items()},
+            "individual_samples": df_results.to_dict(orient="records")
+        }
+        with open(output_dir / "latest_ragas_report.json", "w", encoding="utf-8") as f:
+            json.dump(json_results, f, indent=2, ensure_ascii=False)
+            
+        return json_results
     except Exception as e:
         log_error("Fallo crítico en evaluación RAGAS", e)
         return {"error": str(e)}

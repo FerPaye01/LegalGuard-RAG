@@ -801,14 +801,47 @@ with col_chat:
             
             # Mostrar tabla de detalles si es posible
             try:
-                df = st.session_state.ragas_results.to_pandas()
+                df = pd.DataFrame(res["individual_samples"])
                 st.dataframe(df, use_container_width=True)
+                
+                # Botón de descarga JSON (Compliance)
+                st.download_button(
+                    label="💾 Descargar Reporte RAGAS (JSON)",
+                    data=json.dumps(res, indent=2, ensure_ascii=False),
+                    file_name=f"ragas_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
             except:
                 pass
         else:
             st.info("Haz clic en el botón superior para generar el reporte de métricas actual.")
     
     st.markdown("---")
+    
+    # --- SECCIÓN DE AUDITORÍA Y COMPLIANCE ---
+    with st.expander("🛡️ Centro de Trazabilidad y Compliance"):
+        col_log1, col_log2 = st.columns([2, 1])
+        with col_log1:
+            st.markdown("""
+                **Log de Auditoría (Immutable Audit Trail)**
+                Captura cada consulta, respuesta y fragmento utilizado, incluyendo marcas de tiempo y hashes de integridad.
+            """)
+        with col_log2:
+            log_path = "outputs/governance/audit_log.jsonl"
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as f:
+                    audit_data = f.read()
+                st.download_button(
+                    label="📂 Descargar Log Completo (JSONL)",
+                    data=audit_data,
+                    file_name=f"audit_log_{datetime.now().strftime('%Y%m%d')}.jsonl",
+                    mime="application/jsonl",
+                    use_container_width=True
+                )
+            else:
+                st.error("Archivo de auditoría no encontrado.")
+
     if not (st.session_state.md_content or selected_docs):
         st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
     else:
