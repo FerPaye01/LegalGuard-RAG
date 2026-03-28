@@ -38,19 +38,19 @@ from src.metrics import (
     eval_single_response
 )
 from src.comparator import compare_contract_versions
+from src.retrieval.search_engine import get_search_client
 
 # --- CONFIGURACIÓN DE RUTAS GLOBALES ---
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 AUDIT_LOG_PATH = os.path.join(ROOT_DIR, "outputs/governance/audit_log.jsonl")
 
-# --- MOTOR DE VISTA PREVIA & RIESGO (Global) ---
 def get_preview_content_internal(selection):
     """Helper para obtener el contenido de vista previa según la selección."""
     if selection == "📄 Ingesta Actual":
         return st.session_state.get("md_content", None)
     else:
         try:
-            from src.retrieval.search_engine import get_search_client
+            # Importante: get_search_client ya está importado arriba
             s_client = get_search_client()
             results = list(s_client.search(
                 search_text="*",
@@ -998,8 +998,14 @@ with col_chat:
         render_metric_card(m1, "Fidelidad (Faithfulness)", scores.get("faithfulness", 0), "Alineación factual con las bases documentales.")
         render_metric_card(m2, "Relevancia (Answer Relevancy)", scores.get("answer_relevancy", 0), "Relación directa entre la pregunta y la respuesta.")
         
-        if not is_benchmark:
-            st.info("💡 **Nota**: Precisión y Recall solo se activan en modo **Benchmark** (con Ground Truth). En **Auditoría en Vivo**, evaluamos la fidelidad y relevancia de tus interacciones reales.")
+        with st.expander("📖 ¿Cómo interpretar estos porcentajes?", expanded=False):
+            st.markdown(f"""
+            ### Razonamiento de Calidad LegalGuard
+            - **Fidelidad ({scores.get('faithfulness', 0):.0%})**: {'Excelente alineación. La IA no alucinó y usó estrictamente los fragmentos del contrato.' if scores.get('faithfulness', 0) > 0.8 else 'Atención: Algunos puntos de la respuesta no están explícitamente en los fragmentos recuperados.'}
+            - **Relevancia ({scores.get('answer_relevancy', 0):.0%})**: {'Respuesta directa y concisa a la duda del usuario.' if scores.get('answer_relevancy', 0) > 0.8 else 'La respuesta es correcta pero podría contener información irrelevante o ser demasiado extensa.'}
+            
+            *Auditado automáticamente por Juez RAGAS (GPT-4o) bajo demanda.*
+            """)
         
         st.divider()
         st.subheader("⚖️ Auditoría en Vivo (RAGAS)")
