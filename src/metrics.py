@@ -35,8 +35,12 @@ def load_audit_samples(log_path="outputs/governance/audit_log.jsonl", max_sample
     try:
         with open(log_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
+            
+            # Si piden más muestras de las que hay, tomamos todas
+            count = min(max_samples, len(lines))
+            
             # Tomamos las últimas interacciones
-            for line in lines[-max_samples:]:
+            for line in lines[-count:]:
                 entry = json.loads(line)
                 # RAGAS necesita: question, answer, contexts (lista de strings)
                 samples.append({
@@ -51,11 +55,11 @@ def load_audit_samples(log_path="outputs/governance/audit_log.jsonl", max_sample
     
     return samples
 
-def run_evaluation():
+def run_evaluation(max_samples=5):
     """Ejecuta la evaluación RAGAS completa."""
-    log_sequence("RAGAS", "Iniciando evaluación de calidad (LLM-as-a-Judge)")
+    log_sequence("RAGAS", f"Iniciando evaluación de calidad con {max_samples} muestras (LLM-as-a-Judge)")
     
-    samples = load_audit_samples()
+    samples = load_audit_samples(max_samples=max_samples)
     if not samples:
         return {"error": "No hay suficientes datos para evaluar."}
 

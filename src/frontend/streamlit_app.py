@@ -759,16 +759,36 @@ with col_chat:
         
         col1, col2 = st.columns([1, 1])
         with col1:
+            max_samples = st.slider("Cantidad de mensajes a evaluar", 1, 20, 5, help="Determina cuántas interacciones recientes del log serán auditadas por el Juez IA.")
             if st.button("📈 Ejecutar Evaluación de Calidad", use_container_width=True, type="primary"):
-                with st.spinner("El Juez IA está auditando los logs de las últimas consultas..."):
-                    results = run_evaluation()
+                with st.spinner(f"El Juez IA está auditando los últimos {max_samples} logs..."):
+                    results = run_evaluation(max_samples=max_samples)
                     if "error" in results:
                         st.error(f"Error en evaluación: {results['error']}")
                     else:
                         st.session_state.ragas_results = results
         
         with col2:
-            st.info("Métricas basadas en las últimas 5 interacciones guardadas en el log de gobernanza.")
+            st.info(f"Métricas basadas en las últimas {max_samples} interacciones guardadas en el log de gobernanza.")
+
+        @st.dialog("🔍 Inspección de Fidelidad (Muestra Individual)", width="large")
+        def show_sample_details(sample):
+            st.markdown(f"### ❓ Pregunta del Usuario")
+            st.info(sample.get("question", "N/A"))
+            
+            st.markdown(f"### 📄 Contexto Recuperado (Azure Search)")
+            for i, ctx in enumerate(sample.get("contexts", [])):
+                with st.expander(f"Fragmento {i+1}"):
+                    st.markdown(ctx)
+            
+            st.markdown(f"### 🤖 Respuesta de la IA")
+            st.success(sample.get("answer", "N/A"))
+            
+            st.divider()
+            st.markdown("### 📊 Métricas de esta Muestra")
+            m1, m2 = st.columns(2)
+            m1.metric("Faithfulness", f"{sample.get('faithfulness', 0):.2%}")
+            m2.metric("Answer Relevancy", f"{sample.get('answer_relevancy', 0):.2%}")
 
         if "ragas_results" in st.session_state:
             res = st.session_state.ragas_results
@@ -777,45 +797,48 @@ with col_chat:
             m1, m2, m3 = st.columns(3)
             
             # Sacamos los valores del objeto Result de RAGAS
-            # Dependiendo de la versión de ragas, el acceso puede variar. 
-            # Intentamos acceso por dict o atributo.
             try:
-                f_val = res["faithfulness"]
-                r_val = res["answer_relevancy"]
-                p_val = res["context_precision"]
+                f_val = res["mean_scores"]["faithfulness"]
+                r_val = res["mean_scores"]["answer_relevancy"]
+                p_val = res["mean_scores"]["context_precision"]
             except:
-                f_val = getattr(res, "faithfulness", 0)
-                r_val = getattr(res, "answer_relevancy", 0)
-                p_val = getattr(res, "context_precision", 0)
+                f_val = 0.0
+                r_val = 0.0
+                p_val = 0.0
 
-            m1.metric("Faithfulness (Fidelidad)", f"{f_val:.2%}", help="¿La respuesta se basa estrictamente en el PDF?")
-            m2.metric("Answer Relevancy", f"{r_val:.2%}", help="¿La respuesta es útil para la pregunta?")
-            m3.metric("Context Precision", f"{p_val:.2%}", help="¿Azure Search encontró los mejores fragmentos?")
+            m1.metric("Faithfulness (Promedio)", f"{f_val:.2%}")
+            m2.metric("Answer Relevancy", f"{r_val:.2%}")
+            m3.metric("Context Precision", f"{p_val:.2%}")
             
             st.divider()
-            st.subheader("Interpretación de Resultados")
-            if f_val > 0.8:
-                st.success("✅ **Altísima Fidelidad**: El sistema no está alucinando información externa.")
-            else:
-                st.warning("⚠️ **Riesgo de Alucinación**: Se detectaron respuestas que podrían contener datos no presentes en el PDF.")
             
-            # Mostrar tabla de detalles si es posible
-            try:
-                df = pd.DataFrame(res["individual_samples"])
-                st.dataframe(df, use_container_width=True)
+            # Desglose Individual
+            st.subheader("📋 Desglose por Interacción")
+            if "individual_samples" in res:
+                for i, sample in enumerate(res["individual_samples"]):
+                    col_idx, col_q, col_f, col_btn = st.columns([0.5, 6, 2, 1.5])
+                    col_idx.markdown(f"**#{i+1}**")
+                    col_q.markdown(f"_{sample['question'][:100]}..._")
+                    
+                    f_score = sample.get('faithfulness', 0)
+                    risk_icon = "✅" if f_score > 0.8 else ("⚠️" if f_score > 0.5 else "🚨")
+                    col_f.markdown(f"{risk_icon} **{f_score:.0%}**")
+                    
+                    if col_btn.button("🔎 Ver", key=f"btn_ragas_{i}"):
+                        show_sample_details(sample)
                 
-                # Botón de descarga JSON (Compliance)
-                st.download_button(
-                    label="💾 Descargar Reporte RAGAS (JSON)",
-                    data=json.dumps(res, indent=2, ensure_ascii=False),
-                    file_name=f"ragas_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-            except:
-                pass
+            st.divider()
+            
+            # Botón de descarga JSON (Compliance)
+            st.download_button(
+                label="💾 Descargar Reporte RAGAS Completo (JSON)",
+                data=json.dumps(res, indent=2, ensure_ascii=False),
+                file_name=f"ragas_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json",
+                use_container_width=True
+            )
         else:
-            st.info("Haz clic en el botón superior para generar el reporte de métricas actual.")
+            st.info("Configura la cantidad de muestras y ejecuta la evaluación para ver detalles.")
     
     st.markdown("---")
     
