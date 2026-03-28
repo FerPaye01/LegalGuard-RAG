@@ -293,11 +293,11 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         padding: 0 2px;
     }}
 
-    /* SISTEMA DE CITAS CON TOOLTIP RETARDADO (Efecto "Wow") */
+    /* SISTEMA DE CITAS CON TOOLTIP + SCROLL SYNC (Efecto "Wow") */
     .cite-highlight {{
         background-color: rgba(255, 215, 0, 0.25);
         border-bottom: 2px solid #FFD700;
-        cursor: help;
+        cursor: pointer;
         position: relative;
         padding: 0 4px;
         border-radius: 3px;
@@ -310,7 +310,7 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
 
     /* Tooltip (aparece tras 3 segundos de hover) */
     .cite-highlight::after {{
-        content: attr(data-fragment);
+        content: '🔗 Click para localizar en documento. Mantén hover para ver la cita original: ' attr(data-fragment);
         position: absolute;
         bottom: 130%;
         left: 50%;
@@ -320,28 +320,25 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         padding: 12px 16px;
         border-radius: 10px;
         width: max-content;
-        max-width: 320px;
+        max-width: 350px;
         font-size: 0.82em;
         line-height: 1.5;
         border: 1px solid #3B82F6;
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
         white-space: pre-wrap;
         font-style: italic;
-        /* El truco: espera 3 segundos antes de aparecer */
         opacity: 0;
         visibility: hidden;
-        transition: opacity 0.3s ease 3s, visibility 0.3s ease 3s;
+        transition: opacity 0.3s ease 2s, visibility 0.3s ease 2s;
         z-index: 9999;
         pointer-events: none;
     }}
 
-    /* Al hacer hover, se activa la cadena de transición */
     .cite-highlight:hover::after {{
         opacity: 1;
         visibility: visible;
     }}
 
-    /* Pequeña flechita indicadora */
     .cite-highlight::before {{
         content: '';
         position: absolute;
@@ -352,7 +349,7 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         border-top-color: #3B82F6;
         opacity: 0;
         visibility: hidden;
-        transition: opacity 0.3s ease 3s, visibility 0.3s ease 3s;
+        transition: opacity 0.3s ease 2s, visibility 0.3s ease 2s;
         z-index: 9999;
     }}
 
@@ -360,7 +357,73 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         opacity: 1;
         visibility: visible;
     }}
+
+    /* Animación de parpadeo para el fragmento encontrado en la Mesa de Trabajo */
+    @keyframes sync-blink {{
+        0%, 100% {{ background-color: transparent; }}
+        25% {{ background-color: rgba(59, 130, 246, 0.4); }}
+        50% {{ background-color: transparent; }}
+        75% {{ background-color: rgba(59, 130, 246, 0.4); }}
+    }}
+
+    .sync-found {{
+        animation: sync-blink 1.5s ease 2;
+        border-left: 4px solid #3B82F6 !important;
+        padding-left: 8px !important;
+        border-radius: 4px;
+        scroll-margin-top: 80px;
+    }}
 </style>
+
+<!-- Script de Sincronización Automática (Scroll Sync) -->
+<script>
+document.addEventListener('click', function(e) {{
+    const cite = e.target.closest('.cite-highlight');
+    if (!cite) return;
+    
+    const fragment = cite.getAttribute('data-fragment');
+    if (!fragment) return;
+    
+    // Buscar en la Mesa de Trabajo (legal-document-card)
+    const viewer = document.querySelector('.legal-document-card');
+    if (!viewer) return;
+    
+    // Limpiar highlights anteriores
+    document.querySelectorAll('.sync-found').forEach(el => {{
+        el.classList.remove('sync-found');
+    }});
+    
+    // Buscar el texto en el visor de documentos
+    const searchText = fragment.substring(0, 60).toLowerCase();
+    const walker = document.createTreeWalker(viewer, NodeFilter.SHOW_TEXT);
+    let found = false;
+    
+    while (walker.nextNode()) {{
+        const node = walker.currentNode;
+        if (node.textContent.toLowerCase().includes(searchText)) {{
+            // Envolver el nodo padre con la clase de sincronización
+            const parent = node.parentElement;
+            parent.classList.add('sync-found');
+            
+            // Scroll suave hacia el fragmento
+            parent.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            
+            // Quitar la clase después de 4 segundos
+            setTimeout(() => {{
+                parent.classList.remove('sync-found');
+            }}, 4000);
+            
+            found = true;
+            break;
+        }}
+    }}
+    
+    if (!found) {{
+        // Si no encontró el texto exacto, hacer scroll al inicio del visor
+        viewer.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    }}
+}});
+</script>
 """
 
 st.markdown(get_custom_css(
