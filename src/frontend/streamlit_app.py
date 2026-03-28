@@ -714,7 +714,7 @@ with col_pdf:
     
     # --- COMPARADOR DE VERSIONES (sección superior) ---
     with st.expander("🔀 Comparador de Versiones de Contratos", expanded=False):
-        all_doc_names = [d["name"] for d in get_available_documents_enriched()]
+        all_doc_names = [d["filename"] for d in get_available_documents_enriched()]
         if len(all_doc_names) < 2:
             st.info("Necesitas al menos 2 documentos indexados para comparar versiones.")
         else:
