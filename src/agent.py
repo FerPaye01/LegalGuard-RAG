@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     grader_counts: dict  # Metadatos para la UI (total_found, total_relevant)
     persona: str         # Perfil profesional del usuario (Legal, Financiero, Salud)
     code_output: str     # Resultado de la Calculadora Legal (Dynamic Sessions)
+    tokens: dict         # Uso de tokens (prompt, completion, total)
 
 # --- Modelos de Datos para Estructuración ---
 class RouteQuery(BaseModel):
@@ -338,10 +339,16 @@ IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estr
             answer = response.content
             
             # --- TELEMETRÍA DE TOKENS (Hito 15) ---
+            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             try:
                 encoding = tiktoken.get_encoding("o200k_base")
                 in_tokens = len(encoding.encode(full_prompt))
                 out_tokens = len(encoding.encode(answer))
+                usage = {
+                    "prompt_tokens": in_tokens,
+                    "completion_tokens": out_tokens,
+                    "total_tokens": in_tokens + out_tokens
+                }
                 track_usage(in_tokens, out_tokens, os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"))
             except: pass
             
@@ -349,10 +356,10 @@ IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estr
             clean_answer, is_safe_output = self.governance.gatekeeper(answer, is_input=False)
             if not is_safe_output:
                  self.timer.stop("generator")
-                 return {"answer": f"Lo siento, la respuesta generada fue bloqueada: {clean_answer}"}
+                 return {"answer": f"Lo siento, la respuesta generada fue bloqueada: {clean_answer}", "tokens": usage}
 
             self.timer.stop("generator")
-            return {"answer": clean_answer}
+            return {"answer": clean_answer, "tokens": usage}
         except Exception as e:
             if "content_filter" in str(e).lower():
                 log_error("CRITICAL: El Filtro de Contenido bloqueó la generación final", e)
@@ -513,7 +520,8 @@ IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estr
             fragmentos=[doc.get("content", "") for doc in result.get("documents", [])],
             fuente=result.get("documents", [{}])[0].get("source_file", "General") if result.get("documents") else "General",
             score_confianza=result.get("grader_counts", {}).get("total_relevant", 0) / result.get("grader_counts", {}).get("total_found", 1) if result.get("grader_counts", {}).get("total_found", 0) > 0 else 0.5,
-            dominio="health" if persona == "Salud" else "legal"
+            dominio="health" if persona == "Salud" else "legal",
+            tokens=result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
         )
 
         return {
@@ -521,7 +529,8 @@ IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estr
             "documents": result.get("documents", []),
             "grader_counts": result.get("grader_counts", {}),
             "telemetry": telemetry_report,
-            "code_output": result.get("code_output", "")
+            "code_output": result.get("code_output", ""),
+            "tokens": result.get("tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
         }
 
 if __name__ == "__main__":

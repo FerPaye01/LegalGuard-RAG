@@ -80,20 +80,24 @@ def registrar_consulta(
     fragmentos: list,
     fuente: str,
     score_confianza: float,
-    dominio: str = "legal"
+    dominio: str = "legal",
+    tokens: dict = None
 ) -> dict:
     """
     Registra cada consulta al RAG para trazabilidad y auditoría visual en el Dashboard.
-    Guarda en outputs/logs/consultas.jsonl
+    Guarda en outputs/logs/consultas.jsonl incluyendo uso de tokens.
     """
+    tokens = tokens or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    
     registro = {
         "timestamp"       : datetime.now().isoformat(),
         "pregunta"        : pregunta,
         "respuesta"       : respuesta,
-        "fragmentos"      : fragmentos[:3],   # primeros 3 fragmentos
+        "fragmentos"      : fragmentos[:3],
         "fuente"          : fuente,
         "score_confianza" : round(score_confianza, 3),
         "dominio"         : dominio,
+        "tokens"          : tokens,
         "tiene_fuente"    : bool(fuente),
         "es_confiable"    : score_confianza >= 0.5,
     }

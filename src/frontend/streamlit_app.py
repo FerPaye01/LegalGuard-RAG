@@ -900,33 +900,44 @@ with col_chat:
                         with st.expander(f"✅ {c.clause_name}"):
                             st.markdown(f"**Extracto:**\n> {c.excerpt}\n**Comentario:** {c.comment}")
                 with tab_aus:
-                    for c in ausentes: st.warning(f"❌ {c.clause_name} - *{c.comment}*")
+                    for c in ausentes: 
+                        st.warning(f"❌ {c.clause_name} - *{c.comment}*")
+                    if not ausentes:
+                        st.info("✅ No se detectaron cláusulas faltantes.")
+        else:
+            st.info("📊 Sube un contrato y haz clic en 'Ejecutar Auditoría' para ver el análisis de riesgo.")
         
     with tab_metrics:
-        st.markdown('<h1 class="main-header">Centro de Calidad & Benchmark</h1>', unsafe_allow_html=True)
-        scores = cargar_ultima_evaluacion().get("scores", {})
+        st.markdown('<h1 class="main-header">Centro de Calidad & Trazabilidad</h1>', unsafe_allow_html=True)
+        eval_data = cargar_ultima_evaluacion()
+        scores = eval_data.get("scores", {})
+        is_benchmark = eval_data.get("is_benchmark", False)
+        
         m1, m2, m3, m4 = st.columns(4)
-        def render_metric_card(col, label, val, desc):
-            cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
+        def render_metric_card(col, label, val, desc, mode_active=True):
+            if not mode_active:
+                val_str, cbar = "N/A", "#94A3B8"
+            else:
+                val_str = f"{val:.0%}"
+                cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
             with col:
-                st.markdown(f'<div class="metric-card"><div style="font-size: 0.75rem; color: #64748B;">{label}</div><div style="font-size: 1.5rem; font-weight: 700; color: {cbar};">{val:.0%}</div><div style="font-size: 0.65rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="metric-card"><div style="font-size: 0.75rem; color: #64748B;">{label}</div><div style="font-size: 1.5rem; font-weight: 700; color: {cbar};">{val_str}</div><div style="font-size: 0.65rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
+        
         render_metric_card(m1, "Fidelidad", scores.get("faithfulness", 0), "Bases documentales.")
         render_metric_card(m2, "Relevancia", scores.get("answer_relevancy", 0), "Respuesta directa.")
-        render_metric_card(m3, "Precisión", scores.get("context_precision", 0), "Calidad Azure Search.")
-        render_metric_card(m4, "Recall", scores.get("context_recall", 0), "Cobertura de info.")
+        render_metric_card(m3, "Precisión", scores.get("context_precision", 0), "Calidad Azure Search.", mode_active=is_benchmark)
+        render_metric_card(m4, "Recall", scores.get("context_recall", 0), "Cobertura de info.", mode_active=is_benchmark)
+        
+        if not is_benchmark:
+            st.info("💡 **Nota**: Precisión y Recall solo se activan en modo **Benchmark** (con Ground Truth). En **Auditoría en Vivo**, evaluamos la fidelidad y relevancia de tus interacciones reales.")
+        
         st.divider()
-        col_b1, col_b2 = st.columns([1, 1])
-        with col_b1:
-            st.subheader("🏁 Benchmark CUAD")
-            if st.button("🚀 Ejecutar Benchmark", use_container_width=True):
-                if samples := preparar_dataset_cuad(n_muestras=20):
-                    st.session_state.ragas_results = run_evaluation(samples=samples)
-                    st.rerun()
-        with col_b2:
-            st.subheader("🔍 Auditoría en Vivo")
-            if st.button("🛡️ Auditar Historial", use_container_width=True):
+        st.subheader("⚖️ Auditoría en Vivo (RAGAS)")
+        st.caption("Evalúa la calidad de las últimas interacciones reales en el chat.")
+        if st.button("⚖️ Auditar Historial de Chat", use_container_width=True, type="primary"):
+            with st.status("El Juez IA está auditando el historial...", expanded=True):
                 run_evaluation(max_samples=5)
-                st.rerun()
+            st.rerun()
 
     with tab_command:
         st.markdown('<h1 class="main-header">Centro de Comando</h1>', unsafe_allow_html=True)
@@ -940,8 +951,21 @@ with col_chat:
             for i, (service, data) in enumerate(health.items()):
                 with cols[i]: st.markdown(f"**{service}**\n{data['icon']} {data['status']}")
         st.divider()
-        st.subheader("📊 Consumo de Tokens")
-        if "total_tokens" in st.session_state: st.bar_chart(st.session_state.total_tokens)
+        st.divider()
+        st.subheader("📊 Consumo de Tokens (Acumulado)")
+        historial = cargar_historial()
+        if historial:
+            df_tokens = pd.DataFrame([
+                {"Fecha": r["timestamp"][:16].replace("T", " "), "Tokens": r.get("tokens", {}).get("total_tokens", 0)}
+                for r in historial if "tokens" in r
+            ])
+            if not df_tokens.empty:
+                st.bar_chart(df_tokens.set_index("Fecha"))
+                st.caption(f"Total tokens consumidos en esta sesión: {df_tokens['Tokens'].sum():,}")
+            else:
+                st.info("No hay datos de consumo registrados todavía.")
+        else:
+            st.info("Inicia una conversación para ver el consumo de tokens.")
 
     st.markdown("---")
     with st.expander("🛡️ Trazabilidad y Compliance"):
