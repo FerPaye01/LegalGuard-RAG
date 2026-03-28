@@ -154,3 +154,20 @@ def track_event(name: str, properties: dict = None):
 def track_node_latency(node_timings: dict):
     """Envía las latencias del grafo como evento a Application Insights."""
     track_event("LegalGuard.GraphExecution", node_timings.get("nodes", {}))
+
+def track_usage(input_tokens: int, output_tokens: int, model_name: str):
+    """Envía el consumo de tokens a Application Insights."""
+    track_event("LegalGuard.Usage", {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "model_name": model_name,
+        "total_tokens": input_tokens + output_tokens
+    })
+
+def track_feedback(interaction_id: str, score: int, comment: str = ""):
+    """Envía el feedback del usuario (👍=1, 👎=-1) a Application Insights."""
+    track_event("LegalGuard.UserFeedback", {
+        "interaction_id": interaction_id,
+        "score": score,
+        "comment": comment
+    })

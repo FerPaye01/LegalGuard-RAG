@@ -12,7 +12,8 @@ from langgraph.graph import StateGraph, END
 from src.retrieval.search_engine import AzureSearchHybridEngine
 from src.utils.logger import log_info, log_sequence, log_warn, log_error
 from src.governance import GovernanceManager
-from src.telemetry import NodeTimer, track_node_latency, init_application_insights
+from src.telemetry import NodeTimer, track_node_latency, init_application_insights, track_usage
+import tiktoken
 
 load_dotenv()
 
@@ -289,8 +290,17 @@ class LegalGuardAgent:
         ])
         
         try:
-            response = self.llm.invoke(prompt.format(question=question, context=context))
+            full_prompt = prompt.format(question=question, context=context)
+            response = self.llm.invoke(full_prompt)
             answer = response.content
+            
+            # --- TELEMETRÍA DE TOKENS (Hito 15) ---
+            try:
+                encoding = tiktoken.get_encoding("o200k_base")
+                in_tokens = len(encoding.encode(full_prompt))
+                out_tokens = len(encoding.encode(answer))
+                track_usage(in_tokens, out_tokens, os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"))
+            except: pass
             
             # FILTRO 3: Gatekeeper Output (Content Safety + Anonimización PII Local)
             clean_answer, is_safe_output = self.governance.gatekeeper(answer, is_input=False)
@@ -351,6 +361,14 @@ Genera SOLO el código Python, sin explicaciones ni markdown."""
             # Ejecutar en la Micro-VM de Azure
             log_info(f"Ejecutando en Dynamic Sessions:\n{final_code[:200]}...")
             result_str = repl_tool.invoke(final_code)
+            
+            # --- TELEMETRÍA DE TOKENS (Hito 15) ---
+            try:
+                encoding = tiktoken.get_encoding("o200k_base")
+                in_tokens = len(encoding.encode(code_prompt))
+                out_tokens = len(encoding.encode(generated_code))
+                track_usage(in_tokens, out_tokens, "gpt-4o-mini-calc")
+            except: pass
             
             self.timer.stop("calculator")
             answer = f"""🧮 **Resultado de la Calculadora Legal**
