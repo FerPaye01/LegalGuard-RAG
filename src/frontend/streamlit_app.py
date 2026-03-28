@@ -696,7 +696,7 @@ with col_pdf:
         """, unsafe_allow_html=True)
 
 with col_chat:
-    tab_chat, tab_risk, tab_metrics = st.tabs(["💬 Asistente Legal", "📋 Risk Scanner (CUAD)", "📊 Métricas RAGAS"])
+    tab_chat, tab_risk, tab_metrics, tab_command = st.tabs(["💬 Asistente Legal", "📋 Risk Scanner (CUAD)", "📊 Métricas RAGAS", "📡 Centro de Comando"])
     
     with tab_chat:
         st.markdown('<h1 class="main-header">Agente LegalGuard</h1>', unsafe_allow_html=True)
@@ -780,6 +780,21 @@ with col_chat:
                     
                     st.markdown(final_text, unsafe_allow_html=True)
                     
+                    # --- TELEMETRÍA INLINE (Mini-barra de latencia por nodo) ---
+                    telemetry = result.get("telemetry", {})
+                    nodes = telemetry.get("nodes", {})
+                    if nodes:
+                        total_ms = telemetry.get("total_ms", 1)
+                        with st.expander(f"⏱️ Telemetría del Grafo ({total_ms}ms total)", expanded=False):
+                            for node_name, ms in nodes.items():
+                                pct = min(int((ms / total_ms) * 100), 100)
+                                icon = {
+                                    "router": "🧠", "retriever": "🔍", 
+                                    "grader": "⚖️", "generator": "✍️"
+                                }.get(node_name, "⚙️")
+                                st.markdown(f"{icon} **{node_name.capitalize()}**: {ms}ms")
+                                st.progress(pct / 100)
+                    
                     if docs:
                         with st.expander("🔍 Ver fragmentos originales y fuentes"):
                             for i, doc in enumerate(docs):
@@ -789,7 +804,8 @@ with col_chat:
                     st.session_state.messages.append({
                         "role": "assistant", 
                         "content": final_text,
-                        "documents": docs
+                        "documents": docs,
+                        "telemetry": telemetry
                     })
         else:
             st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
@@ -943,6 +959,111 @@ with col_chat:
             )
         else:
             st.info("Configura la cantidad de muestras y ejecuta la evaluación para ver detalles.")
+
+    # --- TAB 4: CENTRO DE COMANDO (OBSERVABILIDAD) ---
+    with tab_command:
+        st.markdown('<h1 class="main-header">Centro de Comando</h1>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color: {text_secondary}; margin-top: -15px;">Observabilidad en tiempo real: Servicios, Latencia y Application Insights.</p>', unsafe_allow_html=True)
+        
+        # --- SECCIÓN 1: HEARTBEAT DE SERVICIOS ---
+        st.subheader("🫀 Estado de Servicios Azure (Heartbeat)")
+        
+        if st.button("🔄 Verificar Salud de Servicios", use_container_width=True, type="primary"):
+            with st.spinner("Consultando servicios de Azure..."):
+                from src.telemetry import check_azure_health
+                health = check_azure_health()
+                st.session_state.azure_health = health
+        
+        if "azure_health" in st.session_state:
+            health = st.session_state.azure_health
+            cols = st.columns(len(health))
+            for i, (service, data) in enumerate(health.items()):
+                with cols[i]:
+                    status_color = "#10B981" if data["status"] == "healthy" else ("#F59E0B" if "no config" in data["status"] else "#EF4444")
+                    st.markdown(f"""
+                        <div style="text-align: center; padding: 15px; border-radius: 12px; border: 1px solid {border_color}; background: {bg_chat};">
+                            <div style="font-size: 2rem;">{data['icon']}</div>
+                            <div style="font-weight: 700; font-size: 0.85rem; color: {color_text}; margin-top: 5px;">{service}</div>
+                            <div style="font-size: 0.75rem; color: {status_color}; font-weight: 600; margin-top: 3px;">{data['status'].upper()}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # --- SECCIÓN 2: TIMELINE DE TELEMETRÍA ---
+        st.subheader("⏱️ Timeline de Latencia del Grafo")
+        st.markdown(f'<p style="color: {text_secondary}; font-size: 0.85rem;">Historial de latencia por nodo de las últimas consultas procesadas.</p>', unsafe_allow_html=True)
+        
+        # Leer datos de telemetría del audit_log
+        log_path = "outputs/governance/audit_log.jsonl"
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                
+                # Extraemos las últimas 10 entradas con telemetría
+                timeline_data = []
+                for line in reversed(lines[-20:]):
+                    entry = json.loads(line)
+                    meta = entry.get("metadata", {})
+                    tele = meta.get("telemetry", {})
+                    if tele and tele.get("nodes"):
+                        timeline_data.append({
+                            "query": entry.get("query", "N/A")[:50],
+                            "total_ms": tele.get("total_ms", 0),
+                            "nodes": tele.get("nodes", {}),
+                            "timestamp": entry.get("timestamp", "")
+                        })
+                    if len(timeline_data) >= 10:
+                        break
+                
+                if timeline_data:
+                    for i, item in enumerate(timeline_data):
+                        query_label = item['query']
+                        total = item['total_ms']
+                        nodes = item['nodes']
+                        
+                        with st.expander(f"#{i+1} — _{query_label}..._ ({total}ms)", expanded=(i == 0)):
+                            node_cols = st.columns(len(nodes))
+                            for j, (node_name, ms) in enumerate(nodes.items()):
+                                pct = min(int((ms / max(total, 1)) * 100), 100)
+                                icon = {"router": "🧠", "retriever": "🔍", "grader": "⚖️", "generator": "✍️"}.get(node_name, "⚙️")
+                                with node_cols[j]:
+                                    st.metric(f"{icon} {node_name.capitalize()}", f"{ms}ms")
+                                    st.progress(pct / 100)
+                else:
+                    st.info("Todavía no hay datos de telemetría. Haz una consulta al chat para generar la primera medición.")
+            except Exception as e:
+                st.warning(f"No se pudo leer la telemetría: {e}")
+        else:
+            st.info("El archivo de auditoría aún no existe. Haz tu primera consulta para generar datos.")
+        
+        st.divider()
+        
+        # --- SECCIÓN 3: APPLICATION INSIGHTS ---
+        st.subheader("🔵 Azure Application Insights")
+        
+        insights_key = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
+        if insights_key:
+            st.success("✅ **Conectado**. Los eventos de telemetría se envían a Application Insights en tiempo real.")
+            st.markdown(f"""
+                <div style="background: {bg_chat}; border: 1px solid {border_color}; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 10px;">
+                    <p style="color: {color_text}; margin: 0; font-size: 0.9rem;">
+                        📡 Cada consulta al agente genera un evento <code>LegalGuard.GraphExecution</code> con la latencia por nodo.<br>
+                        🔍 Puedes visualizarlos en <b>Azure Portal → Application Insights → Transaction Search</b>.
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ Application Insights no configurado. Añade `APPLICATIONINSIGHTS_CONNECTION_STRING` a las variables de entorno para activarlo.")
+            st.markdown(f"""
+                <div style="background: {bg_chat}; border: 1px solid {border_color}; padding: 15px; border-radius: 10px; font-size: 0.85rem; color: {text_secondary};">
+                    💡 <b>Para activar:</b><br>
+                    1. Crea un recurso Application Insights en Azure Portal.<br>
+                    2. Copia la <b>Connection String</b>.<br>
+                    3. Añádela como <code>APPLICATIONINSIGHTS_CONNECTION_STRING</code> en los secrets de Azure Container Apps.
+                </div>
+            """, unsafe_allow_html=True)
     
     st.markdown("---")
     

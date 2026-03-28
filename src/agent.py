@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, END
 from src.retrieval.search_engine import AzureSearchHybridEngine
 from src.utils.logger import log_info, log_sequence, log_warn, log_error
 from src.governance import GovernanceManager
+from src.telemetry import NodeTimer, track_node_latency, init_application_insights
 
 load_dotenv()
 
@@ -64,6 +65,12 @@ class LegalGuardAgent:
         # Gestor de Gobernanza e IA Responsable
         self.governance = GovernanceManager()
         
+        # Cronómetro de Nodos (Telemetría)
+        self.timer = NodeTimer()
+        
+        # Inicializar Application Insights si está configurado
+        init_application_insights()
+        
         # Construcción del Grafo
         self.workflow = self._build_graph()
 
@@ -110,6 +117,7 @@ class LegalGuardAgent:
     # --- Lógica de los Nodos ---
 
     def router_node(self, state: AgentState):
+        self.timer.start("router")
         log_sequence("Gobernanza", "Validando seguridad de la consulta...")
         question = state["messages"][-1].content
         
@@ -143,6 +151,8 @@ class LegalGuardAgent:
         }
 
     def retriever_node(self, state: AgentState):
+        self.timer.stop("router")
+        self.timer.start("retriever")
         log_sequence("Cerebro: Nodo Retriever", "Consultando Azure AI Search")
         question = state["messages"][-1].content
         filter_docs = state.get("filter_docs", [])
@@ -157,6 +167,8 @@ class LegalGuardAgent:
         return {"documents": results}
 
     def grader_node(self, state: AgentState):
+        self.timer.stop("retriever")
+        self.timer.start("grader")
         log_sequence("Cerebro: Nodo Grader", "Validando relevancia de TODOS los fragmentos (Opción A)")
         question = state["messages"][-1].content
         docs = state["documents"]
@@ -220,6 +232,8 @@ class LegalGuardAgent:
             raise e
 
     def generator_node(self, state: AgentState):
+        self.timer.stop("grader")
+        self.timer.start("generator")
         log_sequence("Cerebro: Nodo Generator", "Sintetizando respuesta con citas HTML y anti-contradicciones")
         question = state["messages"][-1].content
         docs = state["documents"]
@@ -256,8 +270,10 @@ class LegalGuardAgent:
             # FILTRO 3: Gatekeeper Output (Content Safety + Anonimización PII Local)
             clean_answer, is_safe_output = self.governance.gatekeeper(answer, is_input=False)
             if not is_safe_output:
+                 self.timer.stop("generator")
                  return {"answer": f"Lo siento, la respuesta generada fue bloqueada: {clean_answer}"}
 
+            self.timer.stop("generator")
             return {"answer": clean_answer}
         except Exception as e:
             if "content_filter" in str(e).lower():
@@ -290,6 +306,8 @@ class LegalGuardAgent:
 
     def run(self, query: str, filter_docs: list = None):
         """Ejecuta el grafo completo para una pregunta."""
+        self.timer.reset()
+        
         inputs = {
             "messages": [HumanMessage(content=query)],
             "filter_docs": filter_docs or []
@@ -298,18 +316,26 @@ class LegalGuardAgent:
         
         result = self.workflow.invoke(inputs, config=config)
         
+        # Capturar telemetría del grafo
+        telemetry_report = self.timer.get_report()
+        track_node_latency(telemetry_report)
+        
         # Registro de Auditoría (Hito 3)
         self.governance.log_interaction(
             query=query,
             answer=result["answer"],
             documents=result.get("documents", []),
-            metadata={"is_legal": result.get("is_legal_query")}
+            metadata={
+                "is_legal": result.get("is_legal_query"),
+                "telemetry": telemetry_report
+            }
         )
 
         return {
             "answer": result["answer"],
             "documents": result.get("documents", []),
-            "grader_counts": result.get("grader_counts", {})
+            "grader_counts": result.get("grader_counts", {}),
+            "telemetry": telemetry_report
         }
 
 if __name__ == "__main__":
