@@ -6,11 +6,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Crear el directorio de logs si no existe
-LOG_DIR = Path("outputs/logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = LOG_DIR / "legalguard.log"
-
 # Códigos de color ANSI para la terminal
 class LogColors:
     RESET = "\033[0m"
@@ -36,18 +31,14 @@ def _setup_logger():
     logger.setLevel(logging.DEBUG) # Nivel base
 
     # 1. Handler para la Consola (Con colores)
+    # Azure App Service y Container Apps capturan stdout automáticamente
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(ColorFormatter())
 
-    # 2. Handler para el Archivo (Sin colores, detallado para auditoría)
-    file_formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)-8s | %(message)s")
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(file_formatter)
-
-    # 3. Handler para Azure Monitor (Application Insights)
-    connection_string = os.getenv("AZURE_MONITOR_CONNECTION_STRING")
+    # 2. Handler para Azure Monitor (Application Insights)
+    # Reemplaza la necesidad de archivos locales persistentes
+    connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING") or os.getenv("AZURE_MONITOR_CONNECTION_STRING")
     if connection_string:
         try:
             from opencensus.ext.azure.log_exporter import AzureLogHandler
@@ -55,20 +46,18 @@ def _setup_logger():
             az_handler.setLevel(logging.INFO)
             logger.addHandler(az_handler)
         except Exception as e:
-            # No bloqueamos el inicio si falla App Insights
             print(f"⚠️ Error al configurar Azure Monitor: {e}")
 
-    # Evitar duplicados si se llama múltiples veces
-    if not logger.handlers:
+    # Evitar duplicados
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
         logger.addHandler(console_handler)
-        logger.addHandler(file_handler)
         
     return logger
 
 # Instancia global
 _logger = _setup_logger()
 
-# Funciones de utilidad exportadas para el resto de módulos
+# Funciones de utilidad exportadas
 def log_debug(context: str, message: str = ""):
     _logger.debug(f"[{context}] {message}".strip())
 
@@ -82,7 +71,6 @@ def log_error(context: str, message: str = ""):
     _logger.error(f"[{context}] {message}".strip())
 
 def log_sequence(context: str, message: str = ""):
-    """Útil para marcar el inicio de pasos importantes en LangGraph o Ingesta."""
     _logger.info(f"🚀 [{context}] >>> {message}".strip())
 
 def log_critical(context: str, message: str = ""):
