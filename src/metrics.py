@@ -68,12 +68,11 @@ def run_evaluation(max_samples=5):
     
     llm, embeddings = get_ragas_judges()
     
-    try:
         # Ejecutar evaluación
-        # Nota: RAGAS usa el LLM para juzgar la fidelidad y relevancia
+        # Nota: Solo usamos fidelidad y relevancia para modo "sin referencia" (live)
         result = evaluate(
             dataset=dataset,
-            metrics=[faithfulness, answer_relevancy, context_precision],
+            metrics=[faithfulness, answer_relevancy],
             llm=llm,
             embeddings=embeddings
         )

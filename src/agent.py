@@ -394,9 +394,9 @@ Genera SOLO el código Python, sin explicaciones ni markdown."""
         question = state["messages"][-1].content
         
         if not state.get("is_legal_query", False):
-            msg = "¡Hola! Soy LegalGuard. Puedo ayudarte a analizar tus contratos. ¿Tienes alguna duda específica sobre un documento legal?"
+            msg = "¡Hola! Soy LegalGuard. Puedo ayudarte a analizar tus documentos y contratos. ¿Tienes alguna duda específica sobre el contenido cargado?"
         else:
-            msg = "Mi análisis se limita estrictamente al contenido de los contratos proporcionados y no he encontrado información suficientemente fiable para responder a eso. ¿Te gustaría subir un nuevo documento o intentar reformular?"
+            msg = "Mi análisis se limita estrictamente al contenido de los documentos proporcionados y no he encontrado información suficientemente fiable para responder a eso. ¿Te gustaría intentar con otra pregunta o subir un nuevo archivo?"
             
         return {"answer": msg}
 

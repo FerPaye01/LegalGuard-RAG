@@ -894,17 +894,21 @@ with col_chat:
                 f_val = score.get("faithfulness", 0)
                 r_val = score.get("answer_relevancy", 0)
                 badge = "✅" if f_val > 0.8 else ("⚠️" if f_val > 0.5 else "🚨")
-                st.caption(f"{badge} Fidelidad: {f_val:.0%} | Relevancia: {r_val:.0%}")
-            elif not st.session_state.get("realtime_audit", False) and msg.get("documents"):
-                if st.button("❓ Auditar esta respuesta", key=f"audit_btn_{msg_idx}"):
-                    with st.spinner("🛡️ Juez IA verificando..."):
-                        contexts = [d["content"] for d in msg["documents"] if d.get("content")]
-                        # Buscar la pregunta anterior
-                        q_idx = msg_idx - 1
-                        question = mensajes[q_idx]["content"] if q_idx >= 0 else "N/A"
-                        result_audit = eval_single_response(question, msg["content"], contexts)
-                        msg["audit_score"] = result_audit
-                        st.rerun()
+                st.caption(f"{badge} **Gobernanza IA**: Fidelidad {f_val:.0%} | Relevancia {r_val:.0%}")
+            
+            elif not st.session_state.get("realtime_audit", False):
+                if msg.get("documents"):
+                    if st.button("❓ Auditar respuesta", key=f"audit_btn_{msg_idx}", help="Solicitar auditoría RAGAS (LLM-as-a-Judge)"):
+                        with st.spinner("🛡️ Juez IA verificando fidelidad fáctica..."):
+                            contexts = [d["content"] for d in msg["documents"] if d.get("content")]
+                            # Buscar la pregunta anterior
+                            q_idx = msg_idx - 1
+                            question = mensajes[q_idx]["content"] if q_idx >= 0 else "N/A"
+                            result_audit = eval_single_response(question, msg["content"], contexts)
+                            msg["audit_score"] = result_audit
+                            st.rerun()
+                else:
+                    st.caption("ℹ️ *Auditoría no disponible: No se utilizó contexto externo para esta respuesta.*")
         
         if len(mensajes) > 2:
             historial = mensajes[:-2]
