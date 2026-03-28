@@ -533,7 +533,7 @@ A continuación se detalla el cumplimiento de los requerimientos de las tarjetas
 | **Capacidad Multi-dominio** | `src/agent.py` | Demostrada con el SOP de la OMS; el sistema responde con citas precisas sobre salud sin cambios en el código core. |
 | **Azure Monitor** | `src/utils/logger.py` | Integración de **Application Insights** para telemetría distribuida y observabilidad de errores. |
 | **Despliegue Azure** | `deployment/` | Preparación de archivos de configuración (`README_AZURE.md`) para el deploy automático en App Service. |
-| **Document Selector Pro** | `src/frontend/streamlit_app.py` | Implementación de modal emergente con metadatos enriquecidos y visor PDF integrado. |
+| **Mesa de Trabajo Pro** | `src/frontend/streamlit_app.py` | Implementación de modal emergente con **Comparador Semántico Dual-View** integrado. |
 
 ---
 **¿Por qué logramos estos hitos?** 
@@ -645,98 +645,108 @@ A partir de este hito, el flujo de actualización es automático:
 2. **Git Push**: `git push origin main`.
 3. **Auto-Build**: GitHub Actions construye la imagen y la sube al ACR.
 4. **Auto-Deploy**: Azure detecta la nueva imagen y reinicia el servicio con la versión actualizada.
-46: 
-47: ---
-48: 
-49: ## 🚀 Hito 7: Document Selector Pro (Gestión Documental Avanzada)
-50: 
-51: ### Objetivo
-52: Transformar el selector de documentos de un `multiselect` básico en una herramienta de trabajo con modal emergente, metadatos enriquecidos y acceso directo a los PDFs.
-53: 
-54: ### Decisiones de Diseño Confirmadas
-55: 
-56: | Característica | Decisión | Razón |
-57: |---|---|---|
-58: | UI de Selección | **Modal / Diálogo Streamlit** | Mayor impacto visual |
-| Metadatos (resumen, entidades) | **Generados en la ingesta** | Sin spinners al abrir tarjeta |
-| Almacenamiento de metadatos | **Campos nuevos en Azure Search** | Sin infraestructura adicional |
-| Visor PDF | **Botón 👁️ → nueva pestaña (SAS URL)** | Sin problemas de CORS/IFRAME |
-| "Recientes" | **Filtro por `upload_date` de hoy** | Simple y efectivo |
-| "Última consultado" | ❌ **ELIMINADO** | No aporta valor al jurado |
+---
+
+## 🚀 Hito 7: Document Selector Pro (Gestión Documental Avanzada)
+
+Se transformó el selector de documentos en una herramienta de grado empresarial con una experiencia de usuario superior.
+
+- **Interfaz Interactiva**: Implementación de un modal emergente (`st.dialog`) con pestañas para organizar documentos por fecha ("Recientes") y por categorías ("Base de Conocimiento").
+- **Enriquecimiento Automático**: Durante la ingesta, se utiliza GPT-4o-mini para generar automáticamente ricas descripciones de 3 líneas y etiquetas de entidades clave que se almacenan en el índice de Azure Search.
+- **Previsualización Nativa**: Botón de "ojo" inyectado en cada tarjeta de documento que genera un **SAS Token** temporal de Azure Blob Storage para permitir la lectura del PDF original en una pestaña segura.
 
 ---
 
-### Proposed Changes
+## 🏗️ Hito 8: Mesa de Trabajo (Split-screen XAI)
 
-#### Capa 1: Esquema de Azure AI Search
+Implementación de la interfaz de "Auditoría en Paralelo" para reducir la carga cognitiva del usuario.
 
-Añadir 3 campos nuevos al índice (filtrables/buscables) en `src/ingestion/pipeline.py`:
-
-```python
-SimpleField(name="upload_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
-SearchableField(name="doc_summary", type=SearchFieldDataType.String),       # Resumen 3 líneas (LLM)
-SearchableField(name="doc_entities", type=SearchFieldDataType.String),      # Entidades clave (LLM)
-```
-
-#### Capa 2: Enriquecimiento en Ingesta
-
-Nueva función `generate_doc_metadata(text)` que llama al LLM para generar:
-- **`doc_summary`**: Resumen de 3 líneas del contrato.
-- **`doc_entities`**: Lista de entidades: partes, montos, fechas. 
-- **`upload_date`**: `datetime.utcnow().isoformat()` al momento de la ingesta.
-
-Estos 3 campos se adjuntan a **todos** los chunks del documento durante `index_document_from_text()`.
-
-#### Capa 3: Acceso al PDF (SAS Token)
-
-Nueva función `get_blob_sas_url(filename)` que genera una URL firmada con 1hr de expiración para abrir en una pestaña. Solo requiere la `AZURE_STORAGE_CONNECTION_STRING` ya existente.
-
-#### Capa 4: UI del Modal
-
-Se reemplazó el `multiselect` del sidebar por un botón `🗂️ Gestionar Documentos` que abre un `st.dialog()`.
-
-El modal tiene 2 secciones con tabs:
-1. **📅 Recientes** → `upload_date >= hoy`
-2. **🗄️ Base de Conocimiento** → Todos los documentos
-
-Cada documento muestra:
-- `☑️` Checkbox de selección
-- Nombre del archivo
-- `📋` Tags de entidades
-- Resumen en 1 línea
-- `👁️` Botón que abre la SAS URL en nueva pestaña
+- **Diseño Dual**: Vista dividida 40% (Visor) / 60% (Chat) que permite ver el contrato y la interpretación de la IA simultáneamente.
+- **Filtro de Memoria Dinámico**: Capacidad de acotar el contexto del agente a documentos específicos seleccionados desde el modal de gestión.
+- **Premium UX**: Uso de contenedores con scroll interno, tipografía *Inter* y badges de estado para una navegación fluida.
 
 ---
 
-### Flujo Completo
+## 🛡️ Hito 9: Auditoría RAGAS Profunda (Faithfulness & Relevancy)
 
-```mermaid
-sequenceDiagram
-    participant U as Usuario
-    participant UI as Streamlit UI
-    participant Search as Azure Search
-    participant Blob as Azure Blob
+Elevamos la gobernanza a un nivel cuantitativo mediante evaluación automática de respuestas.
 
-    U->>UI: Click "🗂️ Gestionar Documentos"
-    UI->>Search: Busca todos los docs + metadatos (summary, entities, upload_date)
-    Search-->>UI: Lista de documentos enriquecidos
-    UI->>U: Modal con 2 Tabs (Recientes / Base de Conocimiento)
-    U->>UI: Marca checkboxes
-    U->>Blob: Click 👁️ → get_blob_sas_url() → nueva pestaña
-    U->>UI: Click "Usar seleccionados"
-    UI->>UI: Actualiza st.session_state.selected_docs
-    UI-->>U: Chat habilitado con contexto acotado
-```
+- **Métricas de Juez IA**: Integración total de RAGAS para evaluar **Fidelidad (Faithfulness)** y **Relevancia** en cada consulta.
+- **Análisis de Muestras**: Capacidad de ajustar el número de muestras para evaluaciones masivas y visualización de resultados en un dashboard interactivo.
+- **Auditoría Individual**: Modal de inspección que permite ver el razonamiento exacto del Juez IA para cada puntuación otorgada.
 
 ---
 
-### Verification Plan
+## 🔐 Hito 10: Integridad Documental y De-duplicación (SHA-256)
 
-#### Automated
-- Ejecutar ingesta de un PDF y verificar que el índice tiene `doc_summary`, `doc_entities`, `upload_date` poblados.
-- Verificar que la SAS URL abre el PDF en el navegador.
+Protección del índice vectorial contra redundancia y errores de carga.
 
-#### Manual (Demo)
-1. Abrir modal → verificar 2 tabs.
-2. Seleccionar `BT_NDA.pdf` → confirmar → preguntar sobre cláusula.
-3. Click 👁️ → verificar que el PDF abre en pestaña nueva.
+- **Detección por Hash**: Cada archivo subido genera un SHA-256 único. Si el hash ya existe, el sistema bloquea la carga para evitar duplicados, independientemente del nombre del archivo.
+- **Gestión de Versiones**: Si el nombre coincide pero el contenido (hash) cambia, el sistema detecta automáticamente una "Nueva Versión" y actualiza los metadatos legales.
+
+---
+
+## 📦 Hito 11: Despliegue CI/CD Robusto
+
+Optimización de la infraestructura para el escalamiento empresarial.
+
+- **Dockerización Avanzada**: Inclusión de modelos pesados de spaCy y Microsoft Presidio (500MB+) dentro de la imagen de contenedor para arranques garantizados en Azure.
+- **Pipeline de Azure**: Despliegue automático vía GitHub Actions hacia **Azure Container Apps** y **App Service for Containers** en la región de Canada Central para evitar cuotas restringidas.
+- **Seguridad de Secretos**: Migración total de credenciales críticas a variables de entorno inyectadas en tiempo de ejecución.
+
+---
+
+## ⚡ Hito 12: Ingesta en Caliente (Hot-Indexing)
+
+- **Procesamiento On-the-fly**: Al subir un archivo desde la UI, el sistema dispara automáticamente el pipeline de extracción y vectorización.
+- **Contexto Instantáneo**: El Agente RAG reconoce y puede responder sobre el nuevo documento en menos de 10 segundos tras la carga.
+
+---
+
+## 🎭 Hito 13: Persona Dinámica (Persona-aware AI)
+
+El agente adapta su comportamiento según el rol del usuario para respuestas más precisas.
+
+- **Configuración Persona**: Soporte para roles de **Abogado Expert**, **Auditor Financiero**, **Especialista en Salud** y **Orquestador General**.
+- **System Prompts Adaptativos**: Cada rol modifica la profundidad del análisis, el tono y la terminología técnica utilizada por el sistema.
+
+---
+
+## 🧮 Hito 14: Inteligencia y Análisis (Herramientas Pro)
+
+- **Calculadora Legal**: Integración de **Azure Dynamic Sessions** (Micro-VM) para ejecutar código Python/Pandas seguro y realizar cálculos matemáticos exactos sobre cifras contractuales (ej. penalizaciones, fechas de vencimiento).
+- **Comparador de Versiones**: Herramienta side-by-side para detectar diferencias semánticas y textuales entre dos versiones de un mismo contrato.
+
+---
+
+## 📡 Hito 15: Observabilidad Empresarial (Dashboard de Telemetría)
+
+Rastreo total del consumo y efectividad del sistema.
+
+- **Dashboard de Tokens**: Visualización en tiempo real del consumo de tokens (Input/Output) segregado por modelo (GPT-4o vs GPT-4o-mini).
+- **Feedback Loop**: Botones 👍/👎 en cada respuesta que envían eventos de satisfacción directamente a **Azure Application Insights**.
+- **Cierre de Ciclo**: Telemetría avanzada que permite auditar la latencia de cada nodo del grafo LangGraph.
+
+---
+
+## ☁️ Hito 16: Persistencia y Chat Eterno (Azure Cosmos DB)
+
+Transformación de una aplicación volátil a una plataforma de datos persistente.
+
+- **Persistencia en la Nube**: Integración con **Azure Cosmos DB** para el almacenamiento seguro de historiales de conversación indexados por `SessionID`.
+- **Gestión de Sesiones**: Panel lateral (Sidebar) para listar, cargar y eliminar sesiones anteriores desde la nube.
+- **Auto-guardado Transparente**: El sistema persiste automáticamente el estado del chat tras cada interacción del asistente, garantizando la recuperación total de la sesión tras cierres accidentales.
+
+---
+
+| Característica Final | Estado | Componente Clave |
+| :--- | :--- | :--- |
+| **Gobernanza RAGAS** | ✅ Operacional | `src/metrics.py` |
+| **Persistencia Cloud** | ✅ Operacional | `src/chat_history.py` |
+| **Calculadora Matemática** | ✅ Operacional | `azure-dynamic-sessions` |
+| **Docker-Ready** | ✅ Operacional | `Dockerfile` |
+
+---
+<p align="center">
+  <b>LegalGuard RAG</b> — Redefiniendo la auditoría legal con el poder de Azure.
+</p>
