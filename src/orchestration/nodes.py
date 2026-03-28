@@ -114,14 +114,16 @@ def grade_documents(state: LegalGuardState):
 
 
 def generate_response(state: LegalGuardState):
-    """Nodo: Genera respuesta usando hashes PII (Sin desencriptar aquí)."""
-    log_sequence("nodo: generate_response", "Generando respuesta RAG")
+    """Nodo: Genera respuesta usando el perfil (persona) y el contexto recuperado."""
+    log_sequence("nodo: generate_response", "Generando respuesta RAG personalizada")
     
     context = "\n\n".join([d["content"] for d in state.get("context_docs", [])])
     question = state["messages"][-1].content
+    persona = state.get("persona", "Orchestrator")
     
+    # Obtener el prompt base y formatear con la persona
     system_prompt_base = get_prompt("legal_analyst")
-    system_prompt = f"{system_prompt_base}\n\nCONTEXTO:\n{context}"
+    system_prompt = system_prompt_base.format(persona=persona) + f"\n\nCONTEXTO:\n{context}"
     
     llm = _get_llm()
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=question)]
@@ -129,7 +131,7 @@ def generate_response(state: LegalGuardState):
     
     return {
         "messages": [response],
-        "current_step": "Respuesta generada (pre-deanonymize)"
+        "current_step": f"Respuesta generada como {persona}"
     }
 
 
@@ -165,7 +167,10 @@ def classify_intent(state: LegalGuardState):
     log_sequence("nodo: classify_intent", "Evaluando intención del usuario")
     question = state["messages"][-1].content
     
-    system_prompt = get_prompt("orchestrator")
+    # Inyectar la persona en el clasificador para que sepa qué dominio priorizar
+    persona = state.get("persona", "Orchestrator")
+    system_prompt_base = get_prompt("orchestrator")
+    system_prompt = system_prompt_base.format(persona=persona)
     
     llm = _get_llm()
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=question)]

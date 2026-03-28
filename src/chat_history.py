@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from src.utils.logger import log_info, log_sequence, log_warn, log_error
+from src.utils.logger import log_info, log_sequence, log_warn, log_error, log_debug
 
 load_dotenv()
 
@@ -114,7 +114,7 @@ def list_chat_sessions(max_sessions: int = 10) -> list:
             parameters=[{"name": "@max", "value": max_sessions}],
             enable_cross_partition_query=True
         ))
-        log_info(f"📋 {len(items)} sesiones encontradas en Cosmos")
+        log_debug("Cosmos", f"{len(items)} sesiones encontradas")
         return items
     except Exception as e:
         log_error("Error listando sesiones de Cosmos", e)

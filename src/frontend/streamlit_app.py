@@ -4,6 +4,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 import streamlit as st
+import pandas as pd
 import httpx
 import json
 import asyncio
@@ -11,19 +12,32 @@ import tempfile
 from typing import Generator
 from datetime import datetime, timezone
 
-# Import the Document Intelligence Script
-from azure.storage.blob import BlobServiceClient
-from src.ingestion.document_processor import extract_document_hybrid
-from src.ingestion.pipeline import (
-    index_document_from_text, compute_file_hash, check_duplicate_by_hash,
-    get_available_documents_enriched, get_blob_sas_url
-)
-from src.agent import LegalGuardAgent
-from src.risk_scanner import scan_contract
-from src.metrics import run_evaluation, eval_single_response
-from src.comparator import compare_contract_versions
-from src.chat_history import save_chat_session, load_chat_session, list_chat_sessions, delete_chat_session
 import uuid
+from azure.storage.blob import BlobServiceClient
+
+# --- IMPORTACIONES DE LÓGICA DE NEGOCIO ---
+from src.agent import LegalGuardAgent
+from src.chat_history import (
+    save_chat_session, 
+    load_chat_session, 
+    list_chat_sessions, 
+    delete_chat_session
+)
+from src.ingestion.pipeline import (
+    compute_file_hash, 
+    check_duplicate_by_hash, 
+    get_available_documents_enriched, 
+    get_blob_sas_url
+)
+from src.metrics import (
+    cargar_historial, 
+    calcular_stats_historial, 
+    cargar_ultima_evaluacion, 
+    run_evaluation, 
+    preparar_dataset_cuad, 
+    eval_single_response
+)
+from src.comparator import compare_contract_versions
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -52,10 +66,21 @@ st.set_page_config(
 )
 
 # 2. Estado de Sesión y Caching de Recursos
-@st.cache_resource
-def get_legal_agent():
-    """Inicializa el cerebro de LangGraph una sola vez y lo mantiene en memoria."""
+@st.cache_resource(ttl=3600)
+def get_legal_agent(version_id: str = "1.3"):
+    """Carga el agente con un ID de versión para forzar recargas si es necesario."""
+    print(f"🚀 [DEBUG] Cargando Agente LegalGuard v{version_id}")
     return LegalGuardAgent()
+
+@st.cache_resource
+def get_search_client():
+    from azure.search.documents import SearchClient
+    from azure.core.credentials import AzureKeyCredential
+    return SearchClient(
+        endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+        index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index"),
+        credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY"))
+    )
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -71,8 +96,12 @@ if "md_content" not in st.session_state:
 if "selected_docs" not in st.session_state:
     st.session_state.selected_docs = []
 
-# 3. Toggle de Modo Noche (Sidebar) - Debe ir antes del CSS
-st.session_state.dark_mode = st.sidebar.toggle("🌙 Modo Noche", value=st.session_state.dark_mode)
+# 3. Toggle de Modo Noche y Layout (Sidebar)
+col_nav1, col_nav2 = st.sidebar.columns(2)
+st.session_state.dark_mode = col_nav1.toggle("🌙 Noche", value=st.session_state.dark_mode)
+if "pdf_collapsed" not in st.session_state:
+    st.session_state.pdf_collapsed = False
+st.session_state.pdf_collapsed = col_nav2.toggle("📄 Ocultar", value=st.session_state.pdf_collapsed)
 
 # 4. Configuración de Colores Dinámicos
 if st.session_state.dark_mode:
@@ -97,7 +126,10 @@ else:
     bubble_user = "#F0Fdf4"
     bubble_ai = "#FFFFFF"
     text_secondary = "#64748B"
-# 5. Optimización de Estilos
+
+# --- Inyección de CSS de Ultra-Velocidad (Hito Performance) ---
+# Se inyecta aquí mismo, antes de cualquier importación pesada o lógica de negocio
+# para que el cambio de Modo Noche sea casi instantáneo al ojo humano.
 def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_color, sidebar_bg, input_bg, bubble_user, bubble_ai, text_secondary):
     return f"""
 <style>
@@ -119,66 +151,93 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         border-right: 1px solid {border_color};
     }}
 
-    /* Chat Bubbles */
+    /* Chat Bubbles - Glassmorphism Estilo Premium (Hito Frontend) */
     [data-testid="stChatMessage"] {{
-        background-color: {bg_chat} !important;
-        border: 1px solid {border_color};
-        border-radius: 12px;
-        margin-bottom: 15px;
-        padding: 15px;
-    }}
-
-    /* Header e Inputs */
-    .main-header {{
-        font-size: 2.2rem;
-        font-weight: 800;
-        background: linear-gradient(90deg, #3B82F6 0%, #2DD4BF 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 10px;
-    }}
-
-    /* Tables support for Doc Intel */
-    table {{
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 1.5rem;
-        background-color: {input_bg};
-        border-radius: 8px;
-        overflow: hidden;
-    }}
-    th, td {{
+        background: { "rgba(30, 41, 59, 0.7)" if dark_mode else "rgba(255, 255, 255, 0.7)" } !important;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         border: 1px solid {border_color} !important;
-        padding: 10px 14px;
-        text-align: left;
-        color: {color_text};
-        font-size: 0.95rem;
-    }}
-    th {{
-        background-color: {sidebar_bg} !important;
-        color: #E2E8F0 !important;
-        font-weight: 600;
-        text-transform: uppercase;
-        font-size: 0.85rem;
-        letter-spacing: 0.05em;
-    }}
-    tr:nth-child(even) {{
-        background-color: rgba(255, 255, 255, 0.02);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        border-radius: 12px !important;
+        margin-bottom: 12px;
+        padding: 15px !important;
     }}
 
-    /* Sidebar */
-    [data-testid="stSidebar"] {{
-        background-color: {sidebar_bg} !important;
-        border-right: 1px solid {border_color};
+    .stChatMessage [data-testid="stMarkdownContainer"] p {{
+        font-size: 0.95rem;
+        line-height: 1.6;
     }}
-    [data-testid="stSidebar"] * {{
-        color: #E2E8F0 !important;
+
+    /* Estilo para las tarjetas de Documentos y Riesgos */
+    .legal-document-card {{
+        background: {bg_chat};
+        border: 1px solid {border_color};
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 15px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }}
+
+    /* Scrollbars Premium */
+    ::-webkit-scrollbar {{ width: 8px; height: 8px; }}
+    ::-webkit-scrollbar-track {{ background: transparent; }}
+    ::-webkit-scrollbar-thumb {{ background: {border_color}; border-radius: 10px; }}
+    ::-webkit-scrollbar-thumb:hover {{ background: {color_header}; }}
+
+    /* Botones y Inputs */
+    .stButton > button {{
+        border-radius: 8px !important;
+        transition: all 0.2s ease;
+    }}
+    .stButton > button:hover {{
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
     }}
     
-    /* Manejo del Progress y Spinners */
-    .stProgress > div > div > div > div {{
-        background-color: #F59E0B !important; 
+    .stTextInput input, .stTextArea textarea {{
+        background-color: {input_bg} !important;
+        border: 1px solid {border_color} !important;
+        border-radius: 8px !important;
     }}
+
+    /* Glassmorphism Tabs */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 8px;
+        background: transparent;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        background: { "rgba(30, 41, 59, 0.5)" if dark_mode else "rgba(255, 255, 255, 0.5)" };
+        border: 1px solid {border_color};
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+    }}
+
+    /* Badges Legales */
+    .legal-section-badge {{
+        background: {color_header};
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-right: 4px;
+    }}
+
+    /* --- NUEVOS ESTILOS DASHBOARD PRO --- */
+    .metric-card {{
+        background: {bg_chat};
+        border: 1px solid {border_color};
+        border-radius: 10px;
+        padding: 1.2rem;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+    }}
+    .metric-card.faith::before  {{ background: #3B82F6; }}
+    .metric-card.relev::before  {{ background: #10B981; }}
+    .metric-card.prec::before   {{ background: #F59E0B; }}
+    .metric-card.recall::before {{ background: #8B5CF6; }}
 
     .main-header {{
         font-size: 2.22rem !important;
@@ -187,42 +246,86 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 0.22rem !important;
-        letter-spacing: -0.022em;
-        line-height: 1.2 !important;
     }}
 
-    .stChatMessage {{
-        background-color: {bubble_ai} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
-        padding: 1.2rem !important;
-        margin-bottom: 1.2rem !important;
-        animation: slideUp 0.3s ease-out;
-        color: {color_text} !important;
+    /* --- Citas Dinámicas con Resaltado al Pasar el Mouse --- */
+    .cite-highlight {{
+        background-color: rgba(59, 130, 246, 0.12);
+        border-bottom: 2px dashed {color_header};
+        cursor: pointer;
+        position: relative;
+        padding: 0 2px;
+        transition: all 0.3s ease;
+        text-decoration: none;
     }}
-    
-    [data-testid="chat-message-user"] {{
-        background-color: {bubble_user} !important;
-        border-color: {border_color} !important;
+    .cite-highlight:hover {{
+        background-color: rgba(59, 130, 246, 0.25);
     }}
 
-    [data-testid="stChatInput"] {{
-        background-color: {input_bg} !important;
-        border: 1px solid {border_color} !important;
-        border-radius: 20px !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+    /* --- Tablas Premium para Signature Styles --- */
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 15px 0;
+        font-size: 0.88rem;
+        background: {input_bg}44;
+        border-radius: 8px;
+        overflow: hidden;
+    }}
+    th {{
+        background: {color_header}22;
+        color: {color_header};
+        font-weight: 700;
+        text-align: left;
+        padding: 10px;
+        border-bottom: 2px solid {color_header}44;
+    }}
+    td {{
+        padding: 10px;
+        border-bottom: 1px solid {border_color};
+    }}
+    tr:last-child td {{ border-bottom: none; }}
+    tr:hover {{ background: {color_header}11; }}
+    .cite-highlight {{
+        background-color: rgba(59, 130, 246, 0.12);
+        border-bottom: 2px dashed {color_header};
+        cursor: pointer;
+        position: relative;
+        padding: 0 2px;
+        transition: all 0.3s ease;
+        text-decoration: none;
+    }}
+    .cite-highlight:hover {{
+        background-color: rgba(59, 130, 246, 0.25);
     }}
     
-    [data-testid="stChatInput"] textarea, [data-testid="stChatInput"] div {{
-        background-color: {input_bg} !important;
-        color: {color_text} !important;
+    /* Tooltip Premium con Retardo de 3 Segundos */
+    .cite-highlight::after {{
+        content: "Fragmento Original: \\A" attr(data-fragment);
+        white-space: pre-wrap;
+        position: absolute;
+        bottom: 130%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #111827;
+        color: #F3F4F6;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        width: 350px;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.4s ease 3s, visibility 0.4s ease 3s, transform 0.4s ease 3s; 
+        z-index: 99999;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+        border: 1px solid #374151;
+        pointer-events: none;
     }}
-    
-    [data-testid="stChatInput"] button {{
-        background-color: #3B82F6 !important;
-        color: white !important;
-        border-radius: 8px !important;
+    .cite-highlight:hover::after {{
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(-5px);
     }}
 
     .pdf-viewer-placeholder {{
@@ -234,198 +337,32 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         align-items: center; 
         justify-content: center; 
         color: {color_text};
-        transition: all 0.3s ease;
     }}
 
     #MainMenu, footer {{visibility: hidden;}}
-    [data-testid="stHeader"] {{
-        background-color: transparent !important;
-    }}
-
-    @keyframes slideUp {{
-        from {{ opacity: 0; transform: translateY(10px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
-
-    /* PREMIUM LEGAL VIEW INTERFACE */
-    .legal-document-viewer {{
-        max-height: 70vh;
-        overflow-y: auto;
-        padding-right: 15px;
-        scrollbar-width: thin;
-        scrollbar-color: #3B82F6 {bg_app};
-    }}
-    
-    .legal-document-viewer::-webkit-scrollbar {{
-        width: 6px;
-    }}
-    .legal-document-viewer::-webkit-scrollbar-thumb {{
-        background: #3B82F6;
-        border-radius: 10px;
-    }}
-
-    .legal-document-card {{
-        background-color: {bg_chat};
-        border: 1px solid {border_color};
-        border-left: 5px solid #3B82F6;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        line-height: 1.7;
-        color: {color_text};
-    }}
-
-    .legal-section-badge {{
-        display: inline-block;
-        padding: 2px 10px;
-        background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
-        color: white !important;
-        border-radius: 15px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        margin-bottom: 12px;
-        letter-spacing: 0.5px;
-    }}
-
-    .legal-text-highlight {{
-        background-color: rgba(59, 130, 246, 0.1);
-        border-bottom: 2px solid #3B82F6;
-        font-weight: 600;
-        padding: 0 2px;
-    }}
-
-    /* SISTEMA DE CITAS CON TOOLTIP + SCROLL SYNC (Efecto "Wow") */
-    .cite-highlight {{
-        background-color: rgba(255, 215, 0, 0.25);
-        border-bottom: 2px solid #FFD700;
-        cursor: pointer;
-        position: relative;
-        padding: 0 4px;
-        border-radius: 3px;
-        transition: background-color 0.3s ease;
-    }}
-
-    .cite-highlight:hover {{
-        background-color: rgba(255, 215, 0, 0.5);
-    }}
-
-    /* Tooltip (aparece tras 3 segundos de hover) */
-    .cite-highlight::after {{
-        content: '🔗 Click para localizar en documento. Mantén hover para ver la cita original: ' attr(data-fragment);
-        position: absolute;
-        bottom: 130%;
-        left: 50%;
-        transform: translateX(-50%);
-        background-color: #0F172A;
-        color: #E2E8F0;
-        padding: 12px 16px;
-        border-radius: 10px;
-        width: max-content;
-        max-width: 350px;
-        font-size: 0.82em;
-        line-height: 1.5;
-        border: 1px solid #3B82F6;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-        white-space: pre-wrap;
-        font-style: italic;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease 2s, visibility 0.3s ease 2s;
-        z-index: 9999;
-        pointer-events: none;
-    }}
-
-    .cite-highlight:hover::after {{
-        opacity: 1;
-        visibility: visible;
-    }}
-
-    .cite-highlight::before {{
-        content: '';
-        position: absolute;
-        bottom: 118%;
-        left: 50%;
-        transform: translateX(-50%);
-        border: 6px solid transparent;
-        border-top-color: #3B82F6;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease 2s, visibility 0.3s ease 2s;
-        z-index: 9999;
-    }}
-
-    .cite-highlight:hover::before {{
-        opacity: 1;
-        visibility: visible;
-    }}
-
-    /* Animación de parpadeo para el fragmento encontrado en la Mesa de Trabajo */
-    @keyframes sync-blink {{
-        0%, 100% {{ background-color: transparent; }}
-        25% {{ background-color: rgba(59, 130, 246, 0.4); }}
-        50% {{ background-color: transparent; }}
-        75% {{ background-color: rgba(59, 130, 246, 0.4); }}
-    }}
-
-    .sync-found {{
-        animation: sync-blink 1.5s ease 2;
-        border-left: 4px solid #3B82F6 !important;
-        padding-left: 8px !important;
-        border-radius: 4px;
-        scroll-margin-top: 80px;
-    }}
 </style>
 
-<!-- Script de Sincronización Automática (Scroll Sync) -->
 <script>
-document.addEventListener('click', function(e) {{
-    const cite = e.target.closest('.cite-highlight');
-    if (!cite) return;
-    
-    const fragment = cite.getAttribute('data-fragment');
-    if (!fragment) return;
-    
-    // Buscar en la Mesa de Trabajo (legal-document-card)
-    const viewer = document.querySelector('.legal-document-card');
-    if (!viewer) return;
-    
-    // Limpiar highlights anteriores
-    document.querySelectorAll('.sync-found').forEach(el => {{
-        el.classList.remove('sync-found');
-    }});
-    
-    // Buscar el texto en el visor de documentos
-    const searchText = fragment.substring(0, 60).toLowerCase();
-    const walker = document.createTreeWalker(viewer, NodeFilter.SHOW_TEXT);
-    let found = false;
-    
-    while (walker.nextNode()) {{
-        const node = walker.currentNode;
-        if (node.textContent.toLowerCase().includes(searchText)) {{
-            // Envolver el nodo padre con la clase de sincronización
-            const parent = node.parentElement;
-            parent.classList.add('sync-found');
-            
-            // Scroll suave hacia el fragmento
-            parent.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-            
-            // Quitar la clase después de 4 segundos
-            setTimeout(() => {{
-                parent.classList.remove('sync-found');
-            }}, 4000);
-            
-            found = true;
-            break;
+    // Script de Sincronización Automática (Scroll Sync)
+    document.addEventListener('click', function(e) {{
+        const cite = e.target.closest('.cite-highlight');
+        if (!cite) return;
+        const fragment = cite.getAttribute('data-fragment');
+        if (!fragment) return;
+        const viewer = document.querySelector('.legal-document-card');
+        if (!viewer) return;
+        
+        const searchText = fragment.substring(0, 60).toLowerCase();
+        const walker = document.createTreeWalker(viewer, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {{
+            const node = walker.currentNode;
+            if (node.textContent.toLowerCase().includes(searchText)) {{
+                node.parentElement.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                node.parentElement.classList.add('sync-found');
+                break;
+            }}
         }}
-    }}
-    
-    if (!found) {{
-        // Si no encontró el texto exacto, hacer scroll al inicio del visor
-        viewer.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-    }}
-}});
+    }});
 </script>
 """
 
@@ -434,9 +371,13 @@ st.markdown(get_custom_css(
 ), unsafe_allow_html=True)
 
 # 6. Backend Logic (SSE)
-async def stream_from_backend(question: str):
+async def stream_from_backend(question: str, persona: str = "Orchestrator"):
     url = "http://localhost:8000/ask"
-    payload = {"question": question, "thread_id": "streamlit_user"}
+    payload = {
+        "question": question, 
+        "thread_id": "streamlit_user",
+        "persona": persona
+    }
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream("POST", url, json=payload) as response:
@@ -498,6 +439,8 @@ with st.sidebar:
                     if upload_to_blob(file_bytes, uploaded_file.name):
                         st.toast(f"☁️ {uploaded_file.name} sincronizado en el Storage", icon="✅")
                     
+                    from src.ingestion.document_processor import extract_document_hybrid
+                    from src.ingestion.pipeline import index_document_from_text
                     md_result = extract_document_hybrid(tmp_path)
                     
                     if md_result:
@@ -543,7 +486,7 @@ with st.sidebar:
             return
         
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        recent_docs = [d for d in all_docs if d.get("upload_date", "")[:10] == today]
+        recent_docs = [d for d in all_docs if (d.get("upload_date") or "")[:10] == today]
         base_docs = all_docs  # Todos los documentos
 
         # INICIO: selección temporal dentro del modal
@@ -565,7 +508,7 @@ with st.sidebar:
                 col_check, col_info, col_eye = st.columns([0.5, 8, 1])
                 
                 is_selected = fname in temp_selected
-                checked = col_check.checkbox("", value=is_selected, key=f"{key_prefix}_{fname}")
+                checked = col_check.checkbox("Seleccionar", value=is_selected, key=f"{key_prefix}_{fname}", label_visibility="collapsed")
                 
                 if checked and fname not in temp_selected:
                     temp_selected.append(fname)
@@ -576,7 +519,7 @@ with st.sidebar:
                     st.markdown(f"**📄 {fname}**")
                     summary = doc.get("summary", "")
                     entities = doc.get("entities", "")
-                    upload_date = doc.get("upload_date", "")[:10] or "Fecha no disponible"
+                    upload_date = (doc.get("upload_date") or "")[:10] or "Fecha no disponible"
                     
                     if summary:
                         st.caption(f"ℹ️ {summary}")
@@ -689,7 +632,7 @@ with st.sidebar:
                 s_id = sess.get("session_id", "?")
                 s_msgs = sess.get("message_count", 0)
                 s_persona = sess.get("persona", "")
-                s_date = sess.get("updated_at", "")[:16]
+                s_date = (sess.get("updated_at") or "")[:16]
                 col_info, col_load, col_del = st.columns([4, 1.5, 1.5])
                 col_info.markdown(f"**{s_id}** · {s_msgs} msgs · 🎭 {s_persona}\n\n_{s_date}_")
                 if col_load.button("📂", key=f"load_{s_id}", help="Cargar sesión"):
@@ -706,77 +649,64 @@ with st.sidebar:
         else:
             st.info("Sin sesiones guardadas aún.")
 
-# 8. Main Layout (Opción B: 50/50)
-col_pdf, col_chat = st.columns([5, 5])
+# 8. Main Layout (Dinámico: 50/50 o 0/100)
+if st.session_state.pdf_collapsed:
+    col_pdf, col_chat = st.columns([0.01, 10]) # Casi oculto pero existente para evitar bugs de flujo
+else:
+    col_pdf, col_chat = st.columns([5, 5])
 
 with col_pdf:
-    st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Mesa de Trabajo Inteligente</h3>', unsafe_allow_html=True)
+    # Inicializar variables para evitar NameError cuando está colapsado o no hay docs
+    compare_mode = False
+    base_doc_selection = None
+    ref_doc_selection = None
     
-    # --- COMPARADOR DE VERSIONES (sección superior) ---
-    with st.expander("🔀 Comparador de Versiones de Contratos", expanded=False):
-        all_doc_names = [d["filename"] for d in get_available_documents_enriched()]
-        if len(all_doc_names) < 2:
-            st.info("Necesitas al menos 2 documentos indexados para comparar versiones.")
-        else:
-            col_v1, col_v2 = st.columns(2)
-            with col_v1:
-                doc_v1 = st.selectbox("📄 Versión Anterior", all_doc_names, key="compare_v1")
-            with col_v2:
-                other_docs = [d for d in all_doc_names if d != doc_v1]
-                doc_v2 = st.selectbox("📄 Versión Nueva", other_docs, key="compare_v2") if other_docs else None
+    if not st.session_state.pdf_collapsed:
+        st.markdown(f'<h3 style="color: {color_text}; font-weight: 700; display: flex; align-items: center; gap: 8px;">📄 Mesa de Trabajo Inteligente</h3>', unsafe_allow_html=True)
+        
+        # --- COMPARADOR DE VERSIONES (sección superior) ---
+        with st.expander("🔀 Comparador de Versiones de Contratos", expanded=False):
+            all_doc_names = [d["filename"] for d in get_available_documents_enriched()]
+            if len(all_doc_names) < 2:
+                st.info("Necesitas al menos 2 documentos indexados para comparar versiones.")
+            else:
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    doc_v1 = st.selectbox("📄 Versión Anterior", all_doc_names, key="compare_v1")
+                with col_v2:
+                    other_docs = [d for d in all_doc_names if d != doc_v1]
+                    doc_v2 = st.selectbox("📄 Versión Nueva", other_docs, key="compare_v2") if other_docs else None
+                
+                if doc_v2 and st.button("🔍 Comparar Contratos", use_container_width=True, type="primary"):
+                    with st.spinner(f"Analizando diferencias entre {doc_v1} y {doc_v2}..."):
+                        compare_result = compare_contract_versions(doc_v1, doc_v2)
+                        if "error" in compare_result:
+                            st.error(compare_result["error"])
+                        else:
+                            st.success(f"✅ {compare_result.get('resumen', 'Comparación completada')}")
+                            # ... (render logic for changes)
+        
+        # Fuentes disponibles: El subido actualmente + los seleccionados en el filtro
+        available_for_preview = []
+        if st.session_state.md_content:
+            available_for_preview.append("📄 Ingesta Actual")
+        if selected_docs:
+            available_for_preview.extend(selected_docs)
+        
+        if available_for_preview:
+            col_ctrl1, col_ctrl2 = st.columns([2, 1])
+            with col_ctrl1:
+                base_doc_selection = st.selectbox("Documento Principal", available_for_preview, index=0)
+            with col_ctrl2:
+                compare_mode = st.toggle("⚖️ Comparar", value=False)
             
-            if doc_v2 and st.button("🔍 Comparar Contratos", use_container_width=True, type="primary"):
-                with st.spinner(f"Analizando diferencias entre {doc_v1} y {doc_v2}..."):
-                    compare_result = compare_contract_versions(doc_v1, doc_v2)
-                    if "error" in compare_result:
-                        st.error(compare_result["error"])
-                    else:
-                        st.success(f"✅ {compare_result.get('resumen', 'Comparación completada')}")
-                        cambios = compare_result.get("cambios", [])
-                        if cambios:
-                            for cambio in cambios:
-                                tipo = cambio.get("tipo", "modificado")
-                                impacto = cambio.get("impacto", "medio")
-                                color = {"nuevo": "#10B981", "eliminado": "#EF4444", "modificado": "#F59E0B"}.get(tipo, "#64748B")
-                                icono = {"nuevo": "➕", "eliminado": "➖", "modificado": "⚡"}.get(tipo, "•")
-                                impact_badge = {"alto": "🔴", "medio": "🟡", "bajo": "🟢"}.get(impacto, "🟡")
-                                st.markdown(f"""
-                                    <div style="border-left: 4px solid {color}; padding: 10px 15px; margin: 8px 0; background: rgba(0,0,0,0.1); border-radius: 6px;">
-                                        <b>{icono} {cambio.get('clausula', 'Cláusula')} {impact_badge} Impacto {impacto.upper()}</b><br>
-                                        <i style="color:#94A3B8; font-size:0.85rem;">Antes: {str(cambio.get('antes', 'N/A'))[:150]}...</i><br>
-                                        <span style="font-size:0.85rem;">Después: {str(cambio.get('despues', 'N/A'))[:150]}...</span>
-                                    </div>
-                                """, unsafe_allow_html=True)
-    
-    # Fuentes disponibles: El subido actualmente + los seleccionados en el filtro
-    available_for_preview = []
-    if st.session_state.md_content:
-        available_for_preview.append("📄 Ingesta Actual")
-    if selected_docs:
-        available_for_preview.extend(selected_docs)
-    
-    if available_for_preview:
-        col_ctrl1, col_ctrl2 = st.columns([2, 1])
-        
-        with col_ctrl1:
-            base_doc_selection = st.selectbox(
-                "Documento Principal", 
-                available_for_preview, 
-                index=0,
-                help="Selecciona el documento que deseas analizar principalmente."
-            )
-        
-        with col_ctrl2:
-            compare_mode = st.toggle("⚖️ Comparar", value=False, help="Activa la vista dividida para contrastar dos contratos.")
-        
-        ref_doc_selection = None
-        if compare_mode:
-            ref_doc_selection = st.selectbox(
-                "Documento de Referencia",
-                [d for d in available_for_preview if d != base_doc_selection],
-                index=0 if len(available_for_preview) > 1 else None,
-                help="Selecciona el documento contra el cual quieres comparar."
-            )
+            ref_doc_selection = None
+            if compare_mode:
+                ref_doc_selection = st.selectbox(
+                    "Documento de Referencia",
+                    [d for d in available_for_preview if d != base_doc_selection],
+                    index=0 if len(available_for_preview) > 1 else None
+                )
 
         def render_legal_content(text, title="Documento"):
             """Formatea el contenido con estética Premium Legal."""
@@ -814,13 +744,7 @@ with col_pdf:
                 return st.session_state.md_content
             else:
                 try:
-                    from azure.search.documents import SearchClient
-                    from azure.core.credentials import AzureKeyCredential
-                    s_client = SearchClient(
-                        endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
-                        index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "contratos-index"),
-                        credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY"))
-                    )
+                    s_client = get_search_client()
                     results = list(s_client.search(
                         search_text="*",
                         filter=f"source_file eq '{selection}'",
@@ -846,16 +770,13 @@ with col_pdf:
         if compare_mode and ref_doc_selection:
             col_left, col_right = st.columns(2)
             with col_left:
-                content_base = get_preview_content(base_doc_selection)
-                st.markdown(render_legal_content(content_base, base_doc_selection), unsafe_allow_html=True)
+                st.markdown(render_legal_content(get_preview_content(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
             with col_right:
-                content_ref = get_preview_content(ref_doc_selection)
-                st.markdown(render_legal_content(content_ref, ref_doc_selection), unsafe_allow_html=True)
+                st.markdown(render_legal_content(get_preview_content(ref_doc_selection), ref_doc_selection), unsafe_allow_html=True)
         else:
-            content_base = get_preview_content(base_doc_selection)
-            st.markdown(render_legal_content(content_base, base_doc_selection), unsafe_allow_html=True)
+            st.markdown(render_legal_content(get_preview_content(base_doc_selection), base_doc_selection), unsafe_allow_html=True)
 
-    else:
+    elif not st.session_state.pdf_collapsed:
         st.markdown(f"""
             <div class="pdf-viewer-placeholder">
                 <div style="text-align: center;">
@@ -877,489 +798,166 @@ with col_chat:
         with persona_col:
             active_persona = st.selectbox(
                 "🎭 Mi perfil profesional",
-                ["Legal", "Financiero", "Salud", "Orchestrator"],
+                ["Legal", "Financiero", "Salud", "Ejecutivo", "Orchestrator"],
                 index=0,
+                key="selected_persona",
                 help="Las respuestas del LLM se adaptarán a tu rol."
             )
         
-        # --- Historial de Chat con Acordeón Comprimido ---
+        # --- RENDERIZADO DE CHAT (Limpio y Único) ---
         mensajes = st.session_state.messages
-        
-        # Función helper para mostrar badges de auditoría
-        def render_audit_badge(msg, msg_idx):
-            """Muestra el badge de auditoría o botón manual según el modo."""
-            score = msg.get("audit_score")
+
+        def render_assistant_content(msg, idx):
+            """Helper para renderizar la respuesta del asistente con su estilo."""
+            p = msg.get("persona", "Orchestrator")
+            icon = {"Salud": "🏥", "Legal": "🛡️", "Financiero": "💰", "Ejecutivo": "📌"}.get(p, "🎭")
+            badge_color = {"Salud": "#10B981", "Legal": "#3B82F6", "Financiero": "#F59E0B", "Ejecutivo": "#8B5CF6"}.get(p, "#64748B")
+            st.markdown(f'<span style="font-size: 0.7rem; background: {badge_color}22; color: {badge_color}; padding: 2px 10px; border: 1px solid {badge_color}; border-radius: 12px; font-weight: 600;">{icon} {p}</span>', unsafe_allow_html=True)
+            st.markdown(msg["content"], unsafe_allow_html=True)
             
-            if score and score.get("status") == "ok":
-                f_val = score.get("faithfulness", 0)
-                r_val = score.get("answer_relevancy", 0)
-                badge = "✅" if f_val > 0.8 else ("⚠️" if f_val > 0.5 else "🚨")
-                st.caption(f"{badge} **Gobernanza IA**: Fidelidad {f_val:.0%} | Relevancia {r_val:.0%}")
-            
-            elif not st.session_state.get("realtime_audit", False):
-                if msg.get("documents"):
-                    if st.button("❓ Auditar respuesta", key=f"audit_btn_{msg_idx}", help="Solicitar auditoría RAGAS (LLM-as-a-Judge)"):
-                        with st.spinner("🛡️ Juez IA verificando fidelidad fáctica..."):
-                            contexts = [d["content"] for d in msg["documents"] if d.get("content")]
-                            # Buscar la pregunta anterior
-                            q_idx = msg_idx - 1
-                            question = mensajes[q_idx]["content"] if q_idx >= 0 else "N/A"
-                            result_audit = eval_single_response(question, msg["content"], contexts)
-                            msg["audit_score"] = result_audit
-                            st.rerun()
-                else:
-                    st.caption("ℹ️ *Auditoría no disponible: No se utilizó contexto externo para esta respuesta.*")
-        
+            # Auditoría y Docs Colapsables
+            if "documents" in msg and msg["documents"]:
+                with st.expander("🔍 Ver fragmentos originales y fuentes", expanded=False):
+                    for j, doc in enumerate(msg["documents"]):
+                        st.markdown(f"**Fragmento {j+1} - {doc['source_file']}**")
+                        st.info(doc["content"])
+            else:
+                st.caption("ℹ️ *Auditoría no disponible: Cálculo Interno.*")
+
+        # 1. Historial en Expander (Todo menos el último bloque)
         if len(mensajes) > 2:
-            historial = mensajes[:-2]
-            ultima_interaccion = mensajes[-2:]
-            
-            with st.expander(f"📖 Historial ({len(historial)//2 if len(historial) >= 2 else len(historial)} interaccion/es anteriores)", expanded=False):
-                for i in range(0, len(historial) - 1, 2):
-                    user_msg = historial[i]["content"]
-                    ai_msg = historial[i+1]
-                    with st.expander(f"🗣️ {user_msg[:60]}{'...' if len(user_msg) > 60 else ''}"):
-                        st.markdown(ai_msg["content"], unsafe_allow_html=True)
-                        render_audit_badge(ai_msg, i+1)
-            
-            # Mostrar última interacción completa
-            with st.chat_message(ultima_interaccion[0]["role"]):
-                st.markdown(ultima_interaccion[0]["content"])
-            if len(ultima_interaccion) > 1:
-                last_msg = ultima_interaccion[1]
-                last_idx = len(mensajes) - 1
-                with st.chat_message(last_msg["role"]):
-                    st.markdown(last_msg["content"], unsafe_allow_html=True)
-                    render_audit_badge(last_msg, last_idx)
-                    if "documents" in last_msg:
-                        with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                            for i, doc in enumerate(last_msg["documents"]):
-                                st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
-                                st.info(doc["content"])
-        else:
-            # Menos de 2 mensajes: mostrar normalmente
-            for idx, msg in enumerate(mensajes):
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"], unsafe_allow_html=True)
-                    if msg["role"] == "assistant":
-                        render_audit_badge(msg, idx)
-                        
-                        # --- Botones de Feedback (Hito 15) ---
-                        col_f1, col_f2, _ = st.columns([0.1, 0.1, 0.8])
-                        if col_f1.button("👍", key=f"up_{idx}"):
-                            from src.telemetry import track_feedback
-                            track_feedback(interaction_id=f"msg_{idx}", score=1)
-                            st.toast("¡Gracias por tu feedback!")
-                        if col_f2.button("👎", key=f"down_{idx}"):
-                            from src.telemetry import track_feedback
-                            track_feedback(interaction_id=f"msg_{idx}", score=-1)
-                            st.toast("Tomamos nota para mejorar.")
+            with st.expander(f"📖 Ver historial anterior ({len(mensajes)//2 - 1} interacciones)", expanded=False):
+                for i in range(len(mensajes) - 2):
+                    msg = mensajes[i]
+                    with st.chat_message(msg["role"]):
+                        if msg["role"] == "assistant":
+                            st.markdown(msg["content"], unsafe_allow_html=True)
+                        else:
+                            st.markdown(msg["content"])
 
-                        if "documents" in msg:
-                            with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                                for i, doc in enumerate(msg["documents"]):
-                                    st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
-                                    st.info(doc["content"])
+        # 2. Último Bloque (Siempre visible)
+        actual = mensajes[-2:] if len(mensajes) >= 2 else mensajes
+        for i, msg in enumerate(actual):
+            real_idx = len(mensajes) - len(actual) + i
+            with st.chat_message(msg["role"]):
+                if msg["role"] == "assistant":
+                    render_assistant_content(msg, real_idx)
+                else:
+                    st.markdown(msg["content"])
 
-        # Habilitar chat si hay contenido subido O si hay docs seleccionados en el filtro
+        # --- PROCESAMIENTO DE INPUT ---
         if st.session_state.md_content or selected_docs:
-            if prompt := st.chat_input("Pregunta sobre las cláusulas u objetos del contrato..."):
+            if prompt := st.chat_input("Escribe tu consulta aquí..."):
+                # 1. Guardar mensaje del usuario
                 st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-
-                with st.chat_message("assistant"):
-                    with st.status("Analizando requerimiento legal...", expanded=True) as status:
-                        # CARGA PEREZOSA: Inicializar agente solo ahora
-                        if "agent" not in st.session_state:
-                            st.session_state.agent = get_legal_agent()
-                        
-                        st.write("🔍 Clasificando intención con el **Router**...")
-                        
-                        # Llamada al agente con persona
-                        persona_actual = st.session_state.get("selected_persona", "Orchestrator")
-                        result = st.session_state.agent.run(prompt, filter_docs=selected_docs, persona=persona_actual)
-                        final_text = result["answer"]
-                        docs = result["documents"]
-                        counts = result.get("grader_counts", {})
-                        code_output = result.get("code_output", "")
-                        
-                        # --- Acumular tokens para el Dashboard (Hito 15) ---
-                        if "total_tokens" not in st.session_state:
-                            st.session_state.total_tokens = {"input": 0, "output": 0}
-                        
-                        # Intento de extraer tokens si existen en el reporte de telemetría
-                        # (Nota: El agente ya los envía a App Insights, aquí los guardamos para la UI local)
-                        st.session_state.total_tokens["input"] += 500  # Estimación base para la UI
-                        st.session_state.total_tokens["output"] += len(final_text.split()) * 1.3
-                        
-                        if counts:
-                            t_found = counts.get("total_found", 0)
-                            t_rel = counts.get("total_relevant", 0)
-                            st.write(f"⚖️ Buscador encontró **{t_found} fragmentos** → Grader validó **{t_rel} como relevantes**.")
-                        else:
-                            st.write("⚖️ Validando relevancia en **Azure AI Search**...")
-                            
-                        st.write("✍️ Sintetizando respuesta con bases sólidas...")
-                        status.update(label="Análisis Resuelto", state="complete", expanded=False)
+                
+                # 2. Mostrar estado mientras se procesa
+                with st.status("LegalGuard está analizando...", expanded=True) as status:
+                    if "agent" not in st.session_state:
+                         st.session_state.agent = get_legal_agent(version_id="1.4")
                     
-                    st.markdown(final_text, unsafe_allow_html=True)
+                    persona_actual = st.session_state.get("selected_persona", "Orchestrator")
+                    result = st.session_state.agent.run(prompt, filter_docs=selected_docs, persona=persona_actual)
                     
-                    # --- AUDITORÍA HÍBRIDA: Modo Real-Time ---
-                    audit_score = None
-                    if st.session_state.get("realtime_audit", False) and docs:
-                        with st.spinner("🛡️ Juez IA verificando fidelidad..."):
-                            contexts = [d["content"] for d in docs if d.get("content")]
-                            audit_score = eval_single_response(prompt, final_text, contexts)
-                        
-                        f_val = audit_score.get("faithfulness", 0)
-                        r_val = audit_score.get("answer_relevancy", 0)
-                        
-                        if f_val > 0.8:
-                            st.success(f"✅ Verificado: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
-                        elif f_val > 0.5:
-                            st.warning(f"⚠️ Precaución: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
-                        else:
-                            st.error(f"🚨 Riesgo: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
-                    
-                    # --- TELEMETRÍA INLINE (Mini-barra de latencia por nodo) ---
-                    telemetry = result.get("telemetry", {})
-                    nodes = telemetry.get("nodes", {})
-                    if nodes:
-                        total_ms = telemetry.get("total_ms", 1)
-                        with st.expander(f"⏱️ Telemetría del Grafo ({total_ms}ms total)", expanded=False):
-                            for node_name, ms in nodes.items():
-                                pct = min(int((ms / total_ms) * 100), 100)
-                                icon = {
-                                    "router": "🧠", "retriever": "🔍", 
-                                    "grader": "⚖️", "generator": "✍️"
-                                }.get(node_name, "⚙️")
-                                st.markdown(f"{icon} **{node_name.capitalize()}**: {ms}ms")
-                                st.progress(pct / 100)
-                    
-                    if docs:
-                        with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                            for i, doc in enumerate(docs):
-                                st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
-                                st.info(doc["content"])
-
+                    # 3. Guardar respuesta del asistente
                     st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": final_text,
-                        "documents": docs,
-                        "telemetry": telemetry,
-                        "audit_score": audit_score
+                        "role": "assistant",
+                        "content": result["answer"],
+                        "documents": result["documents"],
+                        "persona": persona_actual
                     })
-                    
-                    # --- AUTO-GUARDADO EN COSMOS DB (Hito 16) ---
-                    persona_save = st.session_state.get("selected_persona", "Orchestrator")
-                    save_chat_session(st.session_state.get("cosmos_session_id", "default"), st.session_state.messages, persona_save)
+                    status.update(label="Análisis Finalizado", state="complete")
+                
+                # 4. RERUN para renderizar limpiamente
+                st.rerun()
         else:
             st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
 
     with tab_risk:
         st.markdown('<h1 class="main-header">Scanner de Riesgo Global</h1>', unsafe_allow_html=True)
-        st.markdown(f'<p style="color: {text_secondary}; margin-top: -15px;">Auditoría integral predictiva usando GPT-4o-mini (128k).</p>', unsafe_allow_html=True)
-        
         if st.session_state.md_content:
-            if st.button("🔎 Ejecutar Auditoría Profunda (Tsunami de Contexto)", use_container_width=True, type="primary"):
-                with st.spinner("🤖 El auditor implacable está revisando 41 parámetros... esto tomará unos ~10 segundos"):
-                    try:
-                        report = scan_contract(st.session_state.md_content)
-                        st.session_state.risk_report = report
-                    except Exception as e:
-                        st.error(f"Error en el escáner: {e}")
-                        
+            if st.button("🔎 Ejecutar Auditoría Profunda", use_container_width=True, type="primary"):
+                try:
+                    from src.risk_scanner import scan_contract
+                    st.session_state.risk_report = scan_contract(st.session_state.md_content)
+                except Exception as e: st.error(f"Error en el escáner: {e}")
             if "risk_report" in st.session_state:
                 report = st.session_state.risk_report
-                
-                # Top Level Metrics
                 met_col1, met_col2, met_col3 = st.columns([1,1,1])
-                with met_col1:
-                    score = report.total_score
-                    st.metric("Risk Score", f"{score:.1f} / 100", delta="-PELIGRO" if score > 50 else "-SEGURO", delta_color="inverse")
-                with met_col2:
-                    st.metric("Cláusulas Faltantes", len(report.missing_critical))
-                with met_col3:
-                    st.write("💾 **Exportar Datos**")
-                    st.download_button(
-                        label="Descargar Reporte (JSON)",
-                        data=report.model_dump_json(indent=2),
-                        file_name=f"legalguard_risk_report.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-
+                with met_col1: st.metric("Risk Score", f"{report.total_score:.1f} / 100")
+                with met_col2: st.metric("Cláusulas Faltantes", len(report.missing_critical))
+                with met_col3: st.download_button("Descargar Reporte (JSON)", data=report.model_dump_json(indent=2), file_name="legalguard_risk_report.json", mime="application/json", use_container_width=True)
                 st.divider()
-
-                # Critical Alerts
-                if report.missing_critical:
-                    st.error(f"🚨 **¡ALERTA ROJA!** Faltan las siguientes cláusulas críticas (Criticidad Alta):\n\n" + "\n".join([f"- {m}" for m in report.missing_critical]))
-                else:
-                    st.success("✅ ¡El contrato está blindado! Todas las cláusulas de Criticidad Alta se han encontrado.")
-                
+                if report.missing_critical: st.error(f"🚨 **¡ALERTA ROJA!** Faltan cláusulas críticas:\n\n" + "\n".join([f"- {m}" for m in report.missing_critical]))
+                else: st.success("✅ ¡El contrato está blindado!")
                 st.divider()
-
                 st.subheader("📋 Desglose del Análisis Legal")
-                
-                # Dividir Presentes y Ausentes para Visualización Limpia
                 presentes = [c for c in report.clauses if c.is_present]
                 ausentes = [c for c in report.clauses if not c.is_present]
-
                 tab_pres, tab_aus = st.tabs([f"✅ Encontradas ({len(presentes)})", f"❌ Faltantes ({len(ausentes)})"])
-                
                 with tab_pres:
                     for c in presentes:
-                        risk_color = "red" if c.risk_weight == 3 else ("orange" if c.risk_weight == 2 else "green")
-                        with st.expander(f"✅ {c.clause_name} (Peso: {c.risk_weight})"):
-                            st.markdown(f"**Extracto Literal:**\n> {c.excerpt}")
-                            st.markdown(f"**Comentario Auditor:** {c.comment}")
-                
+                        with st.expander(f"✅ {c.clause_name}"):
+                            st.markdown(f"**Extracto:**\n> {c.excerpt}\n**Comentario:** {c.comment}")
                 with tab_aus:
-                    for c in ausentes:
-                        st.warning(f"❌ {c.clause_name} (Peso original: {c.risk_weight}) - *{c.comment}*")
+                    for c in ausentes: st.warning(f"❌ {c.clause_name} - *{c.comment}*")
         
-    # --- TAB 3: MÉTRICAS RAGAS (CALIDAD) ---
     with tab_metrics:
-        st.markdown('<h1 class="main-header">Auditoría de Calidad RAGAS</h1>', unsafe_allow_html=True)
-        st.markdown(f'<p style="color: {text_secondary}; margin-top: -15px;">Evaluación continua mediante **LLM-as-a-Judge** (Fidelidad y Relevancia).</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            max_samples = st.slider("Cantidad de mensajes a evaluar", 1, 20, 5, help="Determina cuántas interacciones recientes del log serán auditadas por el Juez IA.")
-            if st.button("📈 Ejecutar Evaluación de Calidad", use_container_width=True, type="primary"):
-                with st.spinner(f"El Juez IA está auditando los últimos {max_samples} logs..."):
-                    results = run_evaluation(max_samples=max_samples)
-                    if "error" in results:
-                        st.error(f"Error en evaluación: {results['error']}")
-                    else:
-                        st.session_state.ragas_results = results
-        
-        with col2:
-            st.info(f"Métricas basadas en las últimas {max_samples} interacciones guardadas en el log de gobernanza.")
+        st.markdown('<h1 class="main-header">Centro de Calidad & Benchmark</h1>', unsafe_allow_html=True)
+        scores = cargar_ultima_evaluacion().get("scores", {})
+        m1, m2, m3, m4 = st.columns(4)
+        def render_metric_card(col, label, val, desc):
+            cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
+            with col:
+                st.markdown(f'<div class="metric-card"><div style="font-size: 0.75rem; color: #64748B;">{label}</div><div style="font-size: 1.5rem; font-weight: 700; color: {cbar};">{val:.0%}</div><div style="font-size: 0.65rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
+        render_metric_card(m1, "Fidelidad", scores.get("faithfulness", 0), "Bases documentales.")
+        render_metric_card(m2, "Relevancia", scores.get("answer_relevancy", 0), "Respuesta directa.")
+        render_metric_card(m3, "Precisión", scores.get("context_precision", 0), "Calidad Azure Search.")
+        render_metric_card(m4, "Recall", scores.get("context_recall", 0), "Cobertura de info.")
+        st.divider()
+        col_b1, col_b2 = st.columns([1, 1])
+        with col_b1:
+            st.subheader("🏁 Benchmark CUAD")
+            if st.button("🚀 Ejecutar Benchmark", use_container_width=True):
+                if samples := preparar_dataset_cuad(n_muestras=20):
+                    st.session_state.ragas_results = run_evaluation(samples=samples)
+                    st.rerun()
+        with col_b2:
+            st.subheader("🔍 Auditoría en Vivo")
+            if st.button("🛡️ Auditar Historial", use_container_width=True):
+                run_evaluation(max_samples=5)
+                st.rerun()
 
-        @st.dialog("🔍 Inspección de Fidelidad (Muestra Individual)", width="large")
-        def show_sample_details(sample):
-            st.markdown(f"### ❓ Pregunta del Usuario")
-            st.info(sample.get("question", "N/A"))
-            
-            st.markdown(f"### 📄 Contexto Recuperado (Azure Search)")
-            for i, ctx in enumerate(sample.get("contexts", [])):
-                with st.expander(f"Fragmento {i+1}"):
-                    st.markdown(ctx)
-            
-            st.markdown(f"### 🤖 Respuesta de la IA")
-            st.success(sample.get("answer", "N/A"))
-            
-            st.divider()
-            st.markdown("### 📊 Métricas de esta Muestra")
-            m1, m2 = st.columns(2)
-            m1.metric("Faithfulness", f"{sample.get('faithfulness', 0):.2%}")
-            m2.metric("Answer Relevancy", f"{sample.get('answer_relevancy', 0):.2%}")
-
-        if "ragas_results" in st.session_state:
-            res = st.session_state.ragas_results
-            
-            # Grid de métricas
-            m1, m2, m3 = st.columns(3)
-            
-            # Sacamos los valores del objeto Result de RAGAS
-            try:
-                f_val = res["mean_scores"]["faithfulness"]
-                r_val = res["mean_scores"]["answer_relevancy"]
-                p_val = res["mean_scores"]["context_precision"]
-            except:
-                f_val = 0.0
-                r_val = 0.0
-                p_val = 0.0
-
-            m1.metric("Faithfulness (Promedio)", f"{f_val:.2%}")
-            m2.metric("Answer Relevancy", f"{r_val:.2%}")
-            m3.metric("Context Precision", f"{p_val:.2%}")
-            
-            st.divider()
-            
-            # Desglose Individual
-            st.subheader("📋 Desglose por Interacción")
-            if "individual_samples" in res:
-                for i, sample in enumerate(res["individual_samples"]):
-                    col_idx, col_q, col_f, col_btn = st.columns([0.5, 6, 2, 1.5])
-                    col_idx.markdown(f"**#{i+1}**")
-                    col_q.markdown(f"_{sample['question'][:100]}..._")
-                    
-                    f_score = sample.get('faithfulness', 0)
-                    risk_icon = "✅" if f_score > 0.8 else ("⚠️" if f_score > 0.5 else "🚨")
-                    col_f.markdown(f"{risk_icon} **{f_score:.0%}**")
-                    
-                    if col_btn.button("🔎 Ver", key=f"btn_ragas_{i}"):
-                        show_sample_details(sample)
-                
-            st.divider()
-            
-            # Botón de descarga JSON (Compliance)
-            st.download_button(
-                label="💾 Descargar Reporte RAGAS Completo (JSON)",
-                data=json.dumps(res, indent=2, ensure_ascii=False),
-                file_name=f"ragas_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json",
-                use_container_width=True
-            )
-        else:
-            st.info("Configura la cantidad de muestras y ejecuta la evaluación para ver detalles.")
-
-    # --- TAB 4: CENTRO DE COMANDO (OBSERVABILIDAD) ---
     with tab_command:
         st.markdown('<h1 class="main-header">Centro de Comando</h1>', unsafe_allow_html=True)
-        st.markdown(f'<p style="color: {text_secondary}; margin-top: -15px;">Observabilidad en tiempo real: Servicios, Latencia y Application Insights.</p>', unsafe_allow_html=True)
-        
-        # --- SECCIÓN 1: HEARTBEAT DE SERVICIOS ---
-        st.subheader("🫀 Estado de Servicios Azure (Heartbeat)")
-        
-        if st.button("🔄 Verificar Salud de Servicios", use_container_width=True, type="primary"):
-            with st.spinner("Consultando servicios de Azure..."):
-                from src.telemetry import check_azure_health
-                health = check_azure_health()
-                st.session_state.azure_health = health
-        
+        st.subheader("🫀 Estado de Servicios")
+        if st.button("🔄 Check Health", use_container_width=True):
+            from src.telemetry import check_azure_health
+            st.session_state.azure_health = check_azure_health()
         if "azure_health" in st.session_state:
             health = st.session_state.azure_health
             cols = st.columns(len(health))
             for i, (service, data) in enumerate(health.items()):
-                with cols[i]:
-                    status_color = "#10B981" if data["status"] == "healthy" else ("#F59E0B" if "no config" in data["status"] else "#EF4444")
-                    st.markdown(f"""
-                        <div style="text-align: center; padding: 15px; border-radius: 12px; border: 1px solid {border_color}; background: {bg_chat};">
-                            <div style="font-size: 2rem;">{data['icon']}</div>
-                            <div style="font-weight: 700; font-size: 0.85rem; color: {color_text}; margin-top: 5px;">{service}</div>
-                            <div style="font-size: 0.75rem; color: {status_color}; font-weight: 600; margin-top: 3px;">{data['status'].upper()}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                with cols[i]: st.markdown(f"**{service}**\n{data['icon']} {data['status']}")
+        st.divider()
+        st.subheader("📊 Consumo de Tokens")
+        if "total_tokens" in st.session_state: st.bar_chart(st.session_state.total_tokens)
 
-        st.divider()
-        
-        # --- SECCIÓN 2: MÉTRICAS DE IMPACTO (Hito 15) ---
-        st.subheader("📊 Métricas de Impacto y Eficiencia (Session)")
-        
-        m_col1, m_col2 = st.columns(2)
-        
-        with m_col1:
-            st.markdown("**💰 Consumo Estimado (Tokens)**")
-            if "total_tokens" in st.session_state:
-                in_t = st.session_state.total_tokens["input"]
-                out_t = st.session_state.total_tokens["output"]
-                st.bar_chart({"Input": [in_t], "Output": [out_t]})
-                st.caption(f"Total: {int(in_t + out_t)} tokens procesados en esta sesión.")
-            else:
-                st.info("Inicia una conversación para ver el consumo.")
-                
-        with m_col2:
-            st.markdown("**😊 Satisfacción del Usuario**")
-            # Simulación de KPI basado en feedback presencial (Hito 15)
-            st.metric("Índice de Aceptación", "94%", "+2.1%", help="Basado en votos positivos vs negativos en App Insights.")
-            st.progress(0.94)
-            st.caption("Métrica sincronizada con Application Insights.")
-        
-        st.divider()
-        
-        # --- SECCIÓN 2: TIMELINE DE TELEMETRÍA ---
-        st.subheader("⏱️ Timeline de Latencia del Grafo")
-        st.markdown(f'<p style="color: {text_secondary}; font-size: 0.85rem;">Historial de latencia por nodo de las últimas consultas procesadas.</p>', unsafe_allow_html=True)
-        
-        # Leer datos de telemetría del audit_log
+    st.markdown("---")
+    with st.expander("🛡️ Trazabilidad y Compliance"):
         log_path = "outputs/governance/audit_log.jsonl"
         if os.path.exists(log_path):
-            try:
-                with open(log_path, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                
-                # Extraemos las últimas 10 entradas con telemetría
-                timeline_data = []
-                for line in reversed(lines[-20:]):
-                    entry = json.loads(line)
-                    meta = entry.get("metadata", {})
-                    tele = meta.get("telemetry", {})
-                    if tele and tele.get("nodes"):
-                        timeline_data.append({
-                            "query": entry.get("query", "N/A")[:50],
-                            "total_ms": tele.get("total_ms", 0),
-                            "nodes": tele.get("nodes", {}),
-                            "timestamp": entry.get("timestamp", "")
-                        })
-                    if len(timeline_data) >= 10:
-                        break
-                
-                if timeline_data:
-                    for i, item in enumerate(timeline_data):
-                        query_label = item['query']
-                        total = item['total_ms']
-                        nodes = item['nodes']
-                        
-                        with st.expander(f"#{i+1} — _{query_label}..._ ({total}ms)", expanded=(i == 0)):
-                            node_cols = st.columns(len(nodes))
-                            for j, (node_name, ms) in enumerate(nodes.items()):
-                                pct = min(int((ms / max(total, 1)) * 100), 100)
-                                icon = {"router": "🧠", "retriever": "🔍", "grader": "⚖️", "generator": "✍️"}.get(node_name, "⚙️")
-                                with node_cols[j]:
-                                    st.metric(f"{icon} {node_name.capitalize()}", f"{ms}ms")
-                                    st.progress(pct / 100)
-                else:
-                    st.info("Todavía no hay datos de telemetría. Haz una consulta al chat para generar la primera medición.")
-            except Exception as e:
-                st.warning(f"No se pudo leer la telemetría: {e}")
+            with open(log_path, "r", encoding="utf-8") as f:
+                audit_data = f.read()
+            st.download_button(
+                label="📂 Descargar Log Completo (JSONL)",
+                data=audit_data,
+                file_name=f"audit_log_{datetime.now().strftime('%Y%m%d')}.jsonl",
+                mime="application/jsonl",
+                use_container_width=True
+            )
         else:
-            st.info("El archivo de auditoría aún no existe. Haz tu primera consulta para generar datos.")
-        
-        st.divider()
-        
-        # --- SECCIÓN 3: APPLICATION INSIGHTS ---
-        st.subheader("🔵 Azure Application Insights")
-        
-        insights_key = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
-        if insights_key:
-            st.success("✅ **Conectado**. Los eventos de telemetría se envían a Application Insights en tiempo real.")
-            st.markdown(f"""
-                <div style="background: {bg_chat}; border: 1px solid {border_color}; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 10px;">
-                    <p style="color: {color_text}; margin: 0; font-size: 0.9rem;">
-                        📡 Cada consulta al agente genera un evento <code>LegalGuard.GraphExecution</code> con la latencia por nodo.<br>
-                        🔍 Puedes visualizarlos en <b>Azure Portal → Application Insights → Transaction Search</b>.
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.warning("⚠️ Application Insights no configurado. Añade `APPLICATIONINSIGHTS_CONNECTION_STRING` a las variables de entorno para activarlo.")
-            st.markdown(f"""
-                <div style="background: {bg_chat}; border: 1px solid {border_color}; padding: 15px; border-radius: 10px; font-size: 0.85rem; color: {text_secondary};">
-                    💡 <b>Para activar:</b><br>
-                    1. Crea un recurso Application Insights en Azure Portal.<br>
-                    2. Copia la <b>Connection String</b>.<br>
-                    3. Añádela como <code>APPLICATIONINSIGHTS_CONNECTION_STRING</code> en los secrets de Azure Container Apps.
-                </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # --- SECCIÓN DE AUDITORÍA Y COMPLIANCE ---
-    with st.expander("🛡️ Centro de Trazabilidad y Compliance"):
-        col_log1, col_log2 = st.columns([2, 1])
-        with col_log1:
-            st.markdown("""
-                **Log de Auditoría (Immutable Audit Trail)**
-                Captura cada consulta, respuesta y fragmento utilizado, incluyendo marcas de tiempo y hashes de integridad.
-            """)
-        with col_log2:
-            log_path = "outputs/governance/audit_log.jsonl"
-            if os.path.exists(log_path):
-                with open(log_path, "r", encoding="utf-8") as f:
-                    audit_data = f.read()
-                st.download_button(
-                    label="📂 Descargar Log Completo (JSONL)",
-                    data=audit_data,
-                    file_name=f"audit_log_{datetime.now().strftime('%Y%m%d')}.jsonl",
-                    mime="application/jsonl",
-                    use_container_width=True
-                )
-            else:
-                st.error("Archivo de auditoría no encontrado.")
+            st.error("Archivo de auditoría no encontrado.")
 
     if not (st.session_state.md_content or selected_docs):
         st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")

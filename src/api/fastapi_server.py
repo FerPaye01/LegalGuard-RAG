@@ -34,14 +34,18 @@ async def ask_legalguard(request: Request):
     body = await request.json()
     question = body.get("question", "")
     thread_id = body.get("thread_id", "default_user")
+    persona = body.get("persona", "Orchestrator")
 
     if not question:
         return {"error": "No se proporcionó ninguna pregunta."}
 
     async def event_generator():
-        log_info("api:sse", f"Iniciando flujo SSE para: {question[:50]}...")
+        log_info("api:sse", f"Iniciando flujo SSE para ({persona}): {question[:50]}...")
         
-        inputs = {"messages": [HumanMessage(content=question)]}
+        inputs = {
+            "messages": [HumanMessage(content=question)],
+            "persona": persona
+        }
         config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 10}
 
         try:

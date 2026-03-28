@@ -22,6 +22,13 @@ try:
 except ImportError:
     log_warn("Falta instalar langchain-text-splitters. Haz un pip install langchain-text-splitters")
 
+# Caching utility for Streamlit
+try:
+    import streamlit as st_cache
+    cache_decorator = st_cache.cache_data(ttl=300) # Cache por 5 minutos
+except:
+    def cache_decorator(func): return func
+
 load_dotenv()
 
 # Variables
@@ -197,6 +204,7 @@ def get_blob_sas_url(filename: str, expiry_hours: int = 1) -> str:
         log_error("Error generando SAS URL", e)
         return ""
 
+@cache_decorator
 def get_available_documents_enriched() -> list:
     """Devuelve lista completa con metadatos enriquecidos para el Document Selector Pro.
     Usa fallback: primero intenta campos enriquecidos, si falla usa solo source_file.
@@ -219,7 +227,8 @@ def get_available_documents_enriched() -> list:
                     "entities": doc.get("doc_entities", "")
                 }
         if seen:
-            return sorted(seen.values(), key=lambda x: x["upload_date"], reverse=True)
+            # Ordenar por fecha (manejando posibles Nones)
+            return sorted(seen.values(), key=lambda x: x.get("upload_date") or "", reverse=True)
     except Exception as e:
         log_warn(f"Select enriquecido falló ({e}), usando fallback básico")
 
@@ -241,6 +250,7 @@ def get_available_documents_enriched() -> list:
         log_error("Error en fallback básico de documentos", e)
         return []
 
+@cache_decorator
 def get_available_documents():
     """Devuelve la lista única de archivos cargados en el índice de Azure sin cargar el motor de IA."""
     try:

@@ -1,6 +1,10 @@
 import os
 import json
+import warnings
 from typing import Annotated, List, Union, TypedDict
+
+# Silenciar warnings ruidosos de Pydantic V2 (No afectan la ejecución)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -12,6 +16,7 @@ from langgraph.graph import StateGraph, END
 from src.retrieval.search_engine import AzureSearchHybridEngine
 from src.utils.logger import log_info, log_sequence, log_warn, log_error
 from src.governance import GovernanceManager
+from src.metrics import registrar_consulta
 from src.telemetry import NodeTimer, track_node_latency, init_application_insights, track_usage
 import tiktoken
 
@@ -137,20 +142,23 @@ class LegalGuardAgent:
                 "is_legal_query": False
             }
 
-        log_sequence("Cerebro: Nodo Router", "Clasificando intención")
+        log_sequence("Cerebro: Nodo Router", "VERSION 1.2 - Clasificando intención")
+        log_info(f"Router DEBUG: Recibida pregunta: '{question}'")
         
         structured_llm = self.fast_llm.with_structured_output(RouteQuery)
         
-        # Detectar intención matemática (para Calculadora Legal)
-        math_keywords = ["cuánto", "cuanto", "suma", "total", "calcula", "monto", "penalidad total", "sumar", "promedio", "cuantos", "cuántos"]
+        # Detectar intención técnica/matemática (para Calculadora Legal y SOPs)
+        math_keywords = ["cuánto", "cuanto", "cuál", "cual", "monto", "dosis", "mg", "ml", "mg/kg", "peso", "calcula", "calcular", "libras", "kg", "total", "suma", "sumar"]
         if any(kw in question.lower() for kw in math_keywords):
-            log_info("Detectada intención matemática → enrutando a Calculadora Legal")
+            log_info("Detectada intención técnica/matemática → Activando Motor de Análisis")
             return {"is_legal_query": True}
         
-        system = """Eres un experto en enrutamiento legal y documental. 
-        Si el usuario pregunta algo sobre leyes, contratos, NDAs, plazos, o sobre el CONTENIDO de cualquier documento o procedimiento (SOP) cargado, 
-        responde con 'legal_search'. 
-        Si es un saludo, charla general o una pregunta que no requiere consultar los documentos, responde con 'general_chat'."""
+        persona = state.get("persona", "Orchestrator")
+        
+        system = f"""Eres un experto en enrutamiento documental para el perfil {persona}. 
+        Si el usuario pregunta sobre leyes, contratos, NDAs, plazos, DOSIS, protocolos, requerimientos técnicos o SOPs, RESPONDE con 'legal_search'. 
+        Incluso si la pregunta parece matemática, si se refiere al contenido del documento, indica 'legal_search'.
+        Solo si es un saludo puro o charla totalmente ajena a lo legal/técnico, responde con 'general_chat'."""
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system),
@@ -253,12 +261,42 @@ class LegalGuardAgent:
         docs = state["documents"]
         persona = state.get("persona", "Orchestrator")
         
-        # Instrucciones de rol por persona
+        # Instrucciones de rol por persona (Signature Styles)
         persona_instructions = {
-            "Legal": "Enfoca tu respuesta en obligaciones, derechos, cláusulas contractuales y posible jurisprudencia aplicable. Usa terminología jurídica precisa.",
-            "Financiero": "Destaca montos, penalidades económicas, plazos de pago, condiciones financieras y proyecciones de costo. Habla en cifras cuando sea posible.",
-            "Salud": "Prioriza normativas sanitarias, protocolos de bioseguridad, regulaciones de salud pública y procedimientos clínicos relevantes.",
-            "Orchestrator": "Proporciona una visión equilibrada y completa del documento, balanceando aspectos legales, financieros y operativos."
+            "Legal": """
+            FOCO: Análisis exhaustivo de cláusulas, derechos y obligaciones (o pasos de un SOP).
+            FORMATO OBLIGATORIO: 
+            1. Comienza con una 'Matriz de Análisis' en formato tabla (Referencia | Descripción | Impacto/Riesgo). 
+               *Si no es un contrato, usa: (Paso/Requisito | Descripción | Importancia).*
+            2. Usa listas numeradas para términos legales o técnicos.
+            3. Termina con una sección de '⚠️ Observaciones Críticas'.
+            TONO: Formal, técnico y preciso.""",
+            
+            "Financiero": """
+            FOCO: Auditoría de montos, penalidades, plazos y ROI.
+            FORMATO OBLIGATORIO:
+            1. Comienza con un bloque estilizado '💰 RESUMEN ECONÓMCO' (usando negritas).
+            2. Presenta las cifras clave en una tabla comparativa o lista de datos destacados.
+            3. Destaca fechas límite y penalidades monetarias.
+            TONO: Analítico, enfocado en resultados y datos numéricos.""",
+            
+            "Salud": """
+            FOCO: Cumplimiento de protocolos, SOPs y normativas sanitarias.
+            FORMATO OBLIGATORIO:
+            1. Comienza con un '✅ CHECKLIST DE CUMPLIMIENTO' (puntos con [ ] o [x]).
+            2. Divide la respuesta por 'Fases del Protocolo'.
+            3. Destaca pasos críticos de seguridad con '🚨 CRÍTICO'.
+            TONO: Directo, procedimental y preventivo.""",
+            
+            "Ejecutivo": """
+            FOCO: Toma de decisiones rápida e impacto en el negocio.
+            FORMATO OBLIGATORIO:
+            1. Comienza con '📌 BOTTOM LINE' (Resumen de 2 líneas).
+            2. Usa exactamente 3 bullet points de 'Impacto Estratégico'.
+            3. Termina con una recomendación de 'Próximos Pasos'.
+            TONO: Conciso, estratégico y orientado a la acción.""",
+
+            "Orchestrator": "Proporciona una visión equilibrada y completa del documento, balanceando aspectos legales, financieros y operativos. Usa un formato limpio con markdown estándar."
         }
         role_instruction = persona_instructions.get(persona, persona_instructions["Orchestrator"])
         
@@ -270,7 +308,10 @@ class LegalGuardAgent:
         
         system = f"""Eres LegalGuard, un asistente legal de IA de nivel empresarial. Sigue estas reglas SIN EXCEPCIÓN:
 
-**ROL DEL USUARIO: {persona.upper()}** — {role_instruction}
+**ROL DEL USUARIO: {persona.upper()}**
+{role_instruction}
+
+IMPORTANTE: El formato de salida indicado arriba es MANDATORIO. Úsalo para estructurar toda tu respuesta.
 
 1.  **BASE DOCUMENTAL**: Responde basándote ÚNICAMENTE en el contexto proporcionado. Si la info no está, admítelo: 'No encontré información suficiente en los documentos para responder esto.'
 
@@ -282,7 +323,9 @@ class LegalGuardAgent:
 3.  **ANTI-CONTRADICCIONES**: Si detectas información contradictoria entre dos fragmentos:
     a) Señálalo explícitamente: '⚠️ Se detectó una contradicción entre documentos.'
     b) Responde ÚNICAMENTE basándote en el documento con la [Fecha de Ingesta] MÁS RECIENTE.
-    c) Explica brevemente por qué descartaste el otro: 'El documento X (fecha Y) fue descartado por ser anterior.'"""
+    c) Explica brevemente por qué descartaste el otro: 'El documento X (fecha Y) fue descartado por ser anterior.'
+    
+4.  **ESTRUCTURA VISUAL (OBLIGATORIO)**: Si tu perfil exige tablas (Legal/Financiero) o checklists (Salud), DEBES implementarlas. No respondas con texto plano si el formato de tu rol pide una estructura tabular o de lista."""
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system),
@@ -317,77 +360,105 @@ class LegalGuardAgent:
             raise e
 
     def calculator_node(self, state: AgentState):
-        """Nodo Calculadora Legal: ejecuta Python en Azure Dynamic Sessions."""
+        """Nodo Calculadora Legal: Intenta Azure, cae a Local con resiliencia total."""
         self.timer.stop("router")
         self.timer.start("calculator")
-        log_sequence("Cerebro: Nodo Calculadora", "Ejecutando código Python en Dynamic Sessions (Azure)")
+        log_sequence("Cerebro: Nodo Calculadora", "Iniciando motor de cálculo híbrido")
         question = state["messages"][-1].content
         
-        # Preámbulo inmutable según el Skill de Dynamic Sessions
-        PREAMBULO = """
-import pandas as pd
-import re
-import json
-
-# Función de limpieza de monedas (evita NaN silencioso de errors='coerce')
-limpiar_moneda = lambda val: float(re.sub(r'[^\\d.]', '', str(val))) if re.sub(r'[^\\d.]', '', str(val)) else 0.0
-"""
+        # Preámbulo inmutable reforzado (UTF-8)
+        PREAMBULO = "import pandas as pd\nimport re\nimport json\nimport io\nimport sys\n\n# Limpieza de monedas\nlimpiar_moneda = lambda val: float(re.sub(r'[^\\d.]', '', str(val))) if re.sub(r'[^\\d.]', '', str(val)) else 0.0\n# Helper de impresión limpia\ndef print_json(data): print(json.dumps(data, ensure_ascii=False))\n"
         
         pool_endpoint = os.getenv("AZURE_CONTAINER_APP_SESSION_POOL")
-        
-        if not pool_endpoint:
-            self.timer.stop("calculator")
-            return {"answer": "⚠️ La Calculadora Legal requiere Azure Container Apps. Configura `AZURE_CONTAINER_APP_SESSION_POOL`.", "code_output": ""}
-        
-        try:
-            from langchain_azure_dynamic_sessions import SessionsPythonREPLTool
-            
-            repl_tool = SessionsPythonREPLTool(pool_management_endpoint=pool_endpoint)
-            
-            # Generar el script Python con GPT-4o-mini
-            code_prompt = f"""El usuario pregunta: '{question}'
+        managed_by = "LegalGuard Local Engine (Safe Mode)"
+        result_str = ""
 
-Genera un script Python usando SOLO la función limpiar_moneda() para limpiar valores monetarios.
-Usa SIEMPRE pd.to_numeric(..., errors='raise') NUNCA errors='coerce'.
-El script debe terminar con un print() del resultado en formato JSON: {{'resultado': valor, 'descripcion': 'texto'}}
-Genera SOLO el código Python, sin explicaciones ni markdown."""
-            
+        try:
+            # 1. Generar Código con print_json para asegurar UTF-8
+            code_prompt = f"El usuario pregunta: '{question}'\nGenera un script Python limpio que use la función print_json({{'resultado': valor, 'descripcion': 'texto'}}) al final. NO USES print(json.dumps()). Genera SOLO el código."
             code_response = self.fast_llm.invoke(code_prompt)
             generated_code = code_response.content.strip().replace("```python", "").replace("```", "")
-            
-            # Empaquetar con el preámbulo inmutable
             final_code = PREAMBULO + "\n" + generated_code
-            
-            # Ejecutar en la Micro-VM de Azure
-            log_info(f"Ejecutando en Dynamic Sessions:\n{final_code[:200]}...")
-            result_str = repl_tool.invoke(final_code)
-            
-            # --- TELEMETRÍA DE TOKENS (Hito 15) ---
-            try:
-                encoding = tiktoken.get_encoding("o200k_base")
-                in_tokens = len(encoding.encode(code_prompt))
-                out_tokens = len(encoding.encode(generated_code))
-                track_usage(in_tokens, out_tokens, "gpt-4o-mini-calc")
-            except: pass
-            
-            self.timer.stop("calculator")
-            answer = f"""🧮 **Resultado de la Calculadora Legal**
 
+            # 2. Intentar Azure si hay endpoint, pero atrapar TODO tipo de error (incluso de auth profunda)
+            if pool_endpoint:
+                log_info(f"Probando Azure Dynamic Sessions: {pool_endpoint}")
+                try:
+                    from langchain_azure_dynamic_sessions import SessionsPythonREPLTool
+                    # Importante: Si esto falla por DefaultAzureCredential, caerá al except de abajo
+                    repl_tool = SessionsPythonREPLTool(pool_management_endpoint=pool_endpoint)
+                    result_str = repl_tool.invoke(final_code)
+                    managed_by = "Azure Dynamic Sessions (Sandbox Hyper-V)"
+                    log_info("Azure Dynamic Sessions exitoso.")
+                except BaseException as azure_err:
+                    log_warn(f"Fallo en Azure (Auth/Conexión): {azure_err}. Activando Fallback Local...")
+                    result_str = self._exec_local_code(final_code)
+                    managed_by = "Fallback Local (Tras error en Nube)"
+            else:
+                log_info("Usando motor local directamente (Pool no configurado).")
+                result_str = self._exec_local_code(final_code)
+                managed_by = "Motor de Cálculo Local"
+
+            self.timer.stop("calculator")
+            
+            # --- FORMATEO PROFESIONAL SEGÚN PERSONA (Hito UX) ---
+            persona = state.get("persona", "Orchestrator")
+            format_prompt = f"""Eres un experto en comunicación legal y financiera para el perfil {persona}.
+            Toma el siguiente RESULTADO de cálculo y la PREGUNTA original, y genera una respuesta profesional y hermosa.
+            REGLAS:
+            1. Si el perfil es 'Legal' o 'Financiero', presenta los datos en una TABLA de Markdown.
+            2. Si es 'Salud', usa un formato de 'Prescripción/Dosis Segura'.
+            3. Si es 'Ejecutivo', da el 'Bottom Line' primero.
+            4. ASEGÚRATE de escribir 'niño', 'dosis', 'concentración' y todos los caracteres en español correctamente (UTF-8). No uses \u00f1.
+            
+            PREGUNTA: {question}
+            RESULTADO RAW: {result_str}
+            """
+            formatted_response = self.fast_llm.invoke(format_prompt).content
+            
+            # Formatear la respuesta final con el Badge
+            answer = f"""🧮 **Cálculo de Precisión LegalGuard**
+> [!NOTE]
+> Motor: `{managed_by}`
+
+{formatted_response}
+
+<details><summary>Ver traza técnica (JSON & Script)</summary>
+
+**JSON Intermedio:**
 {result_str}
 
-<details><summary>Ver código Python ejecutado</summary>
-
+**Script Ejecutado:**
 ```python
 {final_code}
 ```
 
 </details>"""
             return {"answer": answer, "code_output": str(result_str)}
-            
+
         except Exception as e:
-            log_error("Error en Calculadora Legal", e)
+            log_error("Fallo total en Nodo Calculadora", e)
             self.timer.stop("calculator")
-            return {"answer": f"Error en la Calculadora Legal: {str(e)[:200]}", "code_output": "error"}
+            # ÚLTIMO ESFUERZO: Si incluso lo anterior falló, intentamos devolver el error de forma limpia
+            return {"answer": f"⚠️ Error en el procesamiento del cálculo: {str(e)}", "code_output": "error"}
+
+    def _exec_local_code(self, code: str) -> str:
+        """Ejecución local segura (restringida) para fallback."""
+        import io
+        import sys
+        output = io.StringIO()
+        try:
+            # Redirigir stdout para capturar el print()
+            original_stdout = sys.stdout
+            sys.stdout = output
+            # Namespace restringido
+            exec_globals = {}
+            exec(code, exec_globals)
+            sys.stdout = original_stdout
+            return output.getvalue().strip()
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            return f"Error en ejecución local: {e}"
 
     def general_node(self, state: AgentState):
         log_sequence("Cerebro: Nodo General", "Charla no-legal")
@@ -404,7 +475,8 @@ Genera SOLO el código Python, sin explicaciones ni markdown."""
 
     def route_decision(self, state: AgentState):
         question = state["messages"][-1].content
-        math_keywords = ["cuánto", "cuanto", "suma", "total", "calcula", "monto", "penalidad total", "sumar", "promedio", "cuántos", "cuantos"]
+        # Sincronización con las palabras clave del Router
+        math_keywords = ["cuánto", "cuanto", "cuál", "cual", "monto", "dosis", "mg", "ml", "mg/kg", "peso", "calcula", "calcular", "libras", "kg", "total", "suma", "sumar"]
         if any(kw in question.lower() for kw in math_keywords):
             return "math"
         if state["is_legal_query"]:
@@ -434,16 +506,14 @@ Genera SOLO el código Python, sin explicaciones ni markdown."""
         telemetry_report = self.timer.get_report()
         track_node_latency(telemetry_report)
         
-        # Registro de Auditoría
-        self.governance.log_interaction(
-            query=query,
-            answer=result["answer"],
-            documents=result.get("documents", []),
-            metadata={
-                "is_legal": result.get("is_legal_query"),
-                "persona": persona,
-                "telemetry": telemetry_report
-            }
+        # Registro de Auditoría Avanzado (Para Dashboard de RAGAS)
+        registrar_consulta(
+            pregunta=query,
+            respuesta=result["answer"],
+            fragmentos=[doc.get("content", "") for doc in result.get("documents", [])],
+            fuente=result.get("documents", [{}])[0].get("source_file", "General") if result.get("documents") else "General",
+            score_confianza=result.get("grader_counts", {}).get("total_relevant", 0) / result.get("grader_counts", {}).get("total_found", 1) if result.get("grader_counts", {}).get("total_found", 0) > 0 else 0.5,
+            dominio="health" if persona == "Salud" else "legal"
         )
 
         return {

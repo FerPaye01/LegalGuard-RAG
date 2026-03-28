@@ -55,29 +55,45 @@ def get_sessions_tool() -> SessionsPythonREPLTool:
 @tool
 def ejecutar_analisis_financiero(codigo_agente: str) -> str:
     """
-    Ejecuta el código pandas del Agente usando un pool aislado en Azure.
-    Antes de ejecutar el código, esta herramienta inyecta la función `limpiar_moneda_global(valor)`.
-    Úsala para analizar tablas extraídas de contratos, sumar multas o verificar balances.
-    ATENCIÓN: pd.to_numeric() fallará (errors='raise') si no usas limpiar_moneda_global() antes en tus columnas de divisas.
+    Ejecuta el código pandas del Agente usando un pool aislado en Azure (o local si falla).
     """
-    log_sequence("dynamic-sessions: Preparando ejecución de script", f"{len(codigo_agente)} caracteres")
+    log_sequence("dynamic-sessions: Preparando ejecución", f"{len(codigo_agente)} caracteres")
     
-    try:
-        repl = get_sessions_tool()
-    except Exception as e:
-        log_error("dynamic-sessions: Error inicializando el REPL Tool", e)
-        return f"Error interno: {str(e)}"
-    
-    # Empaquetado del Sandbox con el Preámbulo
+    # 1. Preparar el código completo
     codigo_completo = f"{_PREAMBULO_DATA_CLEANING}\n\n# --- COMIENZA EL CODIGO DEL AGENTE ---\n{codigo_agente}"
     
-    log_info("dynamic-sessions: Ejecutando código en Azure Container Apps...")
-    
+    # 2. Intentar Azure Dynamic Sessions
     try:
-        # Ejecución remota
-        resultado = repl.execute(codigo_completo)
-        log_info("dynamic-sessions: Ejecución completada")
-        return str(resultado)
-    except Exception as e:
-        log_warn("dynamic-sessions: Fallo en la ejecución del script", e)
-        return f"ValueError / Ejecución fallida: {str(e)}\n\nRecuerda usar limpiar_moneda_global() antes de hacer operaciones o to_numeric."
+        settings = get_settings()
+        pool_endpoint = settings.azure_container_app_session_pool
+        
+        if pool_endpoint:
+            log_info(f"Probando Azure Dynamic Sessions: {pool_endpoint}")
+            # Import dinámico para evitar errores si no está instalado
+            from langchain_azure_dynamic_sessions import SessionsPythonREPLTool
+            repl = SessionsPythonREPLTool(pool_management_endpoint=pool_endpoint)
+            resultado = repl.execute(codigo_completo)
+            log_info("dynamic-sessions: Ejecución en Azure completada con éxito")
+            return str(resultado)
+        else:
+            log_info("No se detectó endpoint de Azure. Usando motor local.")
+    except BaseException as e:
+        log_warn(f"Fallo en Azure Dynamic Sessions (Auth/Conexión): {e}. Usando Fallback Local...")
+
+    # 3. Fallback Local Seguro
+    import io
+    import sys
+    output = io.StringIO()
+    try:
+        original_stdout = sys.stdout
+        sys.stdout = output
+        # Namespace restringido
+        exec_globals = {}
+        exec(codigo_completo, exec_globals)
+        sys.stdout = original_stdout
+        log_info("dynamic-sessions: Ejecución Local completada con éxito")
+        return output.getvalue().strip()
+    except Exception as local_err:
+        sys.stdout = sys.__stdout__
+        log_error("dynamic-sessions: Fallo total (Azure y Local)", local_err)
+        return f"Error crítico: Ambos motores de cálculo fallaron. Detalle local: {local_err}"

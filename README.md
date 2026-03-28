@@ -30,8 +30,8 @@
 
 ## 🚀 Estado del Proyecto (Demo-Ready)
 
-**Última actualización:** 2026-03-24
-El proyecto se encuentra en fase **MVP Finalizado y Funcional**. Se han resuelto todos los cuellos de botella técnicos relacionados con la orquestación (LangGraph), la comunicación (SSE) y la interfaz "God Mode".
+**Última actualización:** 2026-03-28
+El proyecto se encuentra en fase **Producción-Ready para el Microsoft Innovation Challenge**. Se han implementado optimizaciones de UX avanzadas como las "Signature Styles" por perfil, resaltado de citas dinámico con tooltips y auditoría RAGAS de latencia cero.
 
 > [!TIP]
 > Para ver un reporte técnico detallado del progreso, hitos y solución de errores comunes, consulta el archivo [status.md](status.md).
@@ -59,7 +59,9 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 - Responde preguntas en lenguaje natural sobre cualquier contrato
 - **Cada respuesta cita el fragmento exacto** del documento de origen
 - Indicador de confianza: si la información no está en el documento, el sistema lo dice
-- **Auditoría RAGAS**: Evaluación en vivo de Faithfulness y Relevancia directamente en la UI.
+- **Auditoría RAGAS Instantánea**: Evaluación en vivo de Faithfulness y Relevancia con visualización de latencia cero tras la generación.
+- **Citas Dinámicas 2.0**: Resaltado `.cite-highlight` con **Tooltips de 3 Segundos**.
+- **Calculadora Legal Híbrida**: Motor matemático ultra-resiliente que ejecuta código en Azure Dynamic Sessions (Sandbox) con **Fallback Local automático** en caso de fallo de autenticación o conexión.
 - Historial completo y auditable de consultas
 
 ### 🔍 Risk Scanner (Innovación Principal: CUAD Stark)
@@ -151,8 +153,8 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 | **Azure AI Content Safety** | Gobernanza de Toxicidad I/O con Fallback | Free tier |
 | **Microsoft Presidio** | **Anonimización PII Local** (spaCy es_core_news_lg) | Local |
 | **Azure Blob Storage** | Almacén de documentos y Audit Logs (JSONL) | LRS Standard |
-| **Azure Container Apps** | Sesiones dinámicas para ejecución de código seguro | Standard |
 | **Azure Monitor** | Trazabilidad y observabilidad del Grafo de Estados | Free tier |
+| **Azure Container Apps** | **Sesiones dinámicas / Fallback Local** | Standard |
 | **Azure AI Studio** | Orquestación y evaluación del pipeline | — |
 
 ---
@@ -598,6 +600,13 @@ Se implementó un flujo de despliegue continuo autenticado mediante Service Prin
 - **Push**: Carga de imagen en `aclgalguardprod.azurecr.io`.
 - **Deploy**: Actualización del Web App para jalar la nueva imagen y reiniciar el servicio de Streamlit.
 
+### 🔹 Hito 17: Calculadora Legal Híbrida (Resiliencia 100%)
+| Requerimiento | Ubicación | Logro y Justificación |
+| :--- | :--- | :--- |
+| **Motor Híbrido Azure/Local** | `src/agent.py` | Implementación de una estrategia de fallback que conmuta a un REPL local seguro si falla `DefaultAzureCredential`. |
+| **Resiliencia de Herramientas** | `src/tools/code_interpreter.py` | Refactorización de la herramienta de análisis financiero para soportar ejecución local sin dependencia de nube. |
+| **Transparencia UX** | `src/agent.py` | Inclusión de Badges informativos (`Fallback Local` / `Azure Sessions`) para trazabilidad del motor usado. |
+
 ### 5. Configuración Avanzada del Servidor (App Service)
 Estos comandos permiten ajustar el comportamiento del contenedor en Azure para evitar fallos de arranque debido al peso de los modelos de NLP.
 
@@ -744,12 +753,16 @@ Optimización de la infraestructura para el escalamiento empresarial.
 
 ---
 
-## 🎭 Hito 13: Persona Dinámica (Persona-aware AI)
+## 🎭 Hito 13: Persona Dinámica (Signature Styles)
 
-El agente adapta su comportamiento según el rol del usuario para respuestas más precisas.
+El agente no solo adapta su tono, sino también su **estructura visual** según el rol del usuario para reducir la carga cognitiva.
 
-- **Configuración Persona**: Soporte para roles de **Abogado Expert**, **Auditor Financiero**, **Especialista en Salud** y **Orquestador General**.
-- **System Prompts Adaptativos**: Cada rol modifica la profundidad del análisis, el tono y la terminología técnica utilizada por el sistema.
+- **Configuración Persona**: Soporte para **🛡️ Analista Legal**, **💰 Auditor Financiero**, **🏥 Especialista en Salud**, **📌 Ejecutivo** y **Orchestrator**.
+- **Signature Styles (OBLIGATORIO)**:
+    - **Legal**: Genera automáticamente una "Matriz de Obligaciones" (Tablas) y sección de riesgos.
+    - **Financiero**: Resumen económico destacado y tablas de montos/fechas.
+    - **Salud**: Checklists de cumplimiento de protocolos (SOPs).
+    - **Ejecutivo**: Resumen estratégico ("Bottom Line") de 2 líneas y 3 puntos de impacto en negocio.
 
 ---
 

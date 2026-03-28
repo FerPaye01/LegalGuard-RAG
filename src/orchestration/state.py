@@ -25,3 +25,6 @@ class LegalGuardState(TypedDict):
     
     # Bandera para el Circuit Breaker (Límite de reintentos)
     retry_count: int
+    
+    # Perfil seleccionado (Legal, Financiero, Salud)
+    persona: str
