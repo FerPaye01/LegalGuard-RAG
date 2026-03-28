@@ -292,6 +292,74 @@ def get_custom_css(dark_mode, bg_app, bg_chat, color_text, color_header, border_
         font-weight: 600;
         padding: 0 2px;
     }}
+
+    /* SISTEMA DE CITAS CON TOOLTIP RETARDADO (Efecto "Wow") */
+    .cite-highlight {{
+        background-color: rgba(255, 215, 0, 0.25);
+        border-bottom: 2px solid #FFD700;
+        cursor: help;
+        position: relative;
+        padding: 0 4px;
+        border-radius: 3px;
+        transition: background-color 0.3s ease;
+    }}
+
+    .cite-highlight:hover {{
+        background-color: rgba(255, 215, 0, 0.5);
+    }}
+
+    /* Tooltip (aparece tras 3 segundos de hover) */
+    .cite-highlight::after {{
+        content: attr(data-fragment);
+        position: absolute;
+        bottom: 130%;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #0F172A;
+        color: #E2E8F0;
+        padding: 12px 16px;
+        border-radius: 10px;
+        width: max-content;
+        max-width: 320px;
+        font-size: 0.82em;
+        line-height: 1.5;
+        border: 1px solid #3B82F6;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        white-space: pre-wrap;
+        font-style: italic;
+        /* El truco: espera 3 segundos antes de aparecer */
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease 3s, visibility 0.3s ease 3s;
+        z-index: 9999;
+        pointer-events: none;
+    }}
+
+    /* Al hacer hover, se activa la cadena de transición */
+    .cite-highlight:hover::after {{
+        opacity: 1;
+        visibility: visible;
+    }}
+
+    /* Pequeña flechita indicadora */
+    .cite-highlight::before {{
+        content: '';
+        position: absolute;
+        bottom: 118%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: #3B82F6;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease 3s, visibility 0.3s ease 3s;
+        z-index: 9999;
+    }}
+
+    .cite-highlight:hover::before {{
+        opacity: 1;
+        visibility: visible;
+    }}
 </style>
 """
 
@@ -634,14 +702,50 @@ with col_chat:
         st.markdown('<h1 class="main-header">Agente LegalGuard</h1>', unsafe_allow_html=True)
         st.markdown(f'<p style="color: {text_secondary}; margin-top: -15px;">Interacción conversacional (LangGraph RAG Activo).</p>', unsafe_allow_html=True)
         
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                if msg["role"] == "assistant" and "documents" in msg:
-                    with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                        for i, doc in enumerate(msg["documents"]):
-                            st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
-                            st.info(doc["content"])
+        # --- Selector de Persona (Rol del Profesional) ---
+        persona_col, _ = st.columns([2, 3])
+        with persona_col:
+            active_persona = st.selectbox(
+                "🎭 Mi perfil profesional",
+                ["Legal", "Financiero", "Salud", "Orchestrator"],
+                index=0,
+                help="Las respuestas del LLM se adaptarán a tu rol."
+            )
+        
+        # --- Historial de Chat con Acordeón Comprimido ---
+        mensajes = st.session_state.messages
+        if len(mensajes) > 2:
+            historial = mensajes[:-2]
+            ultima_interaccion = mensajes[-2:]
+            
+            with st.expander(f"📖 Historial ({len(historial)//2 if len(historial) >= 2 else len(historial)} interaccion/es anteriores)", expanded=False):
+                for i in range(0, len(historial) - 1, 2):
+                    user_msg = historial[i]["content"]
+                    ai_msg = historial[i+1]["content"] if i+1 < len(historial) else ""
+                    with st.expander(f"🗣️ {user_msg[:60]}{'...' if len(user_msg) > 60 else ''}"):
+                        st.markdown(ai_msg, unsafe_allow_html=True)
+            
+            # Mostrar última interacción completa
+            with st.chat_message(ultima_interaccion[0]["role"]):
+                st.markdown(ultima_interaccion[0]["content"])
+            if len(ultima_interaccion) > 1:
+                with st.chat_message(ultima_interaccion[1]["role"]):
+                    st.markdown(ultima_interaccion[1]["content"], unsafe_allow_html=True)
+                    if "documents" in ultima_interaccion[1]:
+                        with st.expander("🔍 Ver fragmentos originales y fuentes"):
+                            for i, doc in enumerate(ultima_interaccion[1]["documents"]):
+                                st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
+                                st.info(doc["content"])
+        else:
+            # Menos de 2 mensajes: mostrar normalmente
+            for msg in mensajes:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"], unsafe_allow_html=True)
+                    if msg["role"] == "assistant" and "documents" in msg:
+                        with st.expander("🔍 Ver fragmentos originales y fuentes"):
+                            for i, doc in enumerate(msg["documents"]):
+                                st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
+                                st.info(doc["content"])
 
         # Habilitar chat si hay contenido subido O si hay docs seleccionados en el filtro
         if st.session_state.md_content or selected_docs:
@@ -674,7 +778,7 @@ with col_chat:
                         st.write("✍️ Sintetizando respuesta con bases sólidas...")
                         status.update(label="Análisis Resuelto", state="complete", expanded=False)
                     
-                    st.markdown(final_text)
+                    st.markdown(final_text, unsafe_allow_html=True)
                     
                     if docs:
                         with st.expander("🔍 Ver fragmentos originales y fuentes"):

@@ -75,7 +75,7 @@ class AzureSearchHybridEngine:
             results = self.search_client.search(
                 search_text=query,                 # Componente Léxico (Mitiga IDs y Nombres Exactos)
                 vector_queries=[vector_query],     # Componente Vectorial (HNSW)
-                select=["id", "source_file", "content"],
+                select=["id", "source_file", "content", "upload_date"],
                 filter=filter_str,                 # Filtro de documentos seleccionados
                 top=top_k
             )
@@ -88,6 +88,7 @@ class AzureSearchHybridEngine:
                     "id": doc["id"],
                     "source_file": doc["source_file"],
                     "content": doc["content"],
+                    "upload_date": doc.get("upload_date", "Desconocida"),
                     "score": score
                 })
                 

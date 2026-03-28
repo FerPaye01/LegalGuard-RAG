@@ -150,7 +150,7 @@ class LegalGuardAgent:
         # Consultar usando el motor híbrido (RRF) con filtro opcional
         results = self.search_engine.search_hybrid(
             query=question, 
-            top_k=3, 
+            top_k=5,
             filter_docs=filter_docs
         )
         
@@ -220,20 +220,33 @@ class LegalGuardAgent:
             raise e
 
     def generator_node(self, state: AgentState):
-        log_sequence("Cerebro: Nodo Generator", "Sintetizando respuesta con citas")
+        log_sequence("Cerebro: Nodo Generator", "Sintetizando respuesta con citas HTML y anti-contradicciones")
         question = state["messages"][-1].content
         docs = state["documents"]
         
-        context = "\n\n".join([f"--- SOURCE: {d['source_file']} ---\n{d['content']}" for d in docs])
+        # Contexto enriquecido con fecha de ingesta para resolución de contradicciones
+        context = "\n\n".join([
+            f"[Documento: {d['source_file']}]\n[Fecha de Ingesta: {d.get('upload_date', 'Desconocida')}]\nTexto: {d['content']}"
+            for d in docs
+        ])
         
-        system = """Eres LegalGuard, un asistente de IA experto en leyes. 
-        Responde la pregunta basándote ÚNICAMENTE en el contexto proporcionado.
-        Si la información no está presente, admítelo.
-        SIEMPRE cita el nombre del archivo de origen al final de tu respuesta."""
+        system = """Eres LegalGuard, un asistente legal de IA de nivel empresarial. Sigue estas reglas SIN EXCEPCIÓN:
+
+1.  **BASE DOCUMENTAL**: Responde basándote ÚNICAMENTE en el contexto proporcionado. Si la info no está, admítelo: 'No encontré información suficiente en los documentos para responder esto.'
+
+2.  **CITAS OBLIGATORIAS (MUY IMPORTANTE)**: Cuando hagas una afirmación clave basada en el documento, DEBES envolver esa frase en esta etiqueta HTML exacta:
+    `<span class="cite-highlight" data-fragment="[Cita textual exacta del fragmento original]">tu frase generada</span>`
+    Ejemplo: El contrato establece que <span class="cite-highlight" data-fragment="La multa por incumplimiento será de $5,000 dentro de los 30 días.">el incumplimiento acarrea una multa de $5,000</span>.
+    NO uses corchetes [1] ni notas al pie. USA SOLO esta etiqueta HTML.
+
+3.  **ANTI-CONTRADICCIONES**: Si detectas información contradictoria entre dos fragmentos:
+    a) Señálalo explícitamente: '⚠️ Se detectó una contradicción entre documentos.'
+    b) Responde ÚNICAMENTE basándote en el documento con la [Fecha de Ingesta] MÁS RECIENTE.
+    c) Explica brevemente por qué descartaste el otro: 'El documento X (fecha Y) fue descartado por ser anterior.'"""
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", system),
-            ("human", "Pregunta: {question} \n\n Contexto: {context}")
+            ("human", "Pregunta: {question} \n\n Contexto con fechas:\n{context}")
         ])
         
         try:

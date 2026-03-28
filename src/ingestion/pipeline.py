@@ -133,23 +133,34 @@ def smart_chunking(markdown_text):
     final_chunks = text_splitter.split_documents(md_header_splits)
     return [chunk.page_content for chunk in final_chunks]
 
-def generate_doc_metadata(markdown_text: str) -> dict:
-    """Genera resumen y entidades clave del documento usando GPT-4o-mini en la ingesta."""
+# Prompts diferenciados para el Onboarding por Rol (Persona Dinámica)
+PERSONA_PROMPTS = {
+    "Legal": "Identifica los 3 mayores riesgos legales (terminación, indemnización, jurisdicción). Sé directo y técnico.",
+    "Financiero": "Identifica los términos de pago, montos exactos, penalidades financieras y fechas críticas de facturación.",
+    "Salud": "Identifica los protocolos de cumplimiento, normativas sanitarias, obligaciones de bioseguridad y plazos de reporte.",
+    "Orchestrator": "Resume los puntos clave del documento de forma concisa y equilibrada."
+}
+
+def generate_doc_metadata(markdown_text: str, persona: str = "Orchestrator") -> dict:
+    """Genera resumen contextualizado por rol y entidades usando GPT-4o en la ingesta."""
     try:
-        # Usamos los primeros 6000 chars para el contexto del resumen (equilibrio costo/calidad)
         context = markdown_text[:6000]
+        instruccion_rol = PERSONA_PROMPTS.get(persona, PERSONA_PROMPTS["Orchestrator"])
+        
         response = oai_client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o-mini"),
             messages=[{
                 "role": "user",
-                "content": f"""Analiza este texto de un contrato legal y responde SOLO en JSON con este formato exacto:
-{{"summary": "resumen de 2-3 líneas del propósito del documento", "entities": "lista de entidades clave separadas por comas: partes involucradas, montos, fechas relevantes"}}
+                "content": f"""Eres un analista experto. Analiza este documento para un profesional con rol: {persona}.
+{instruccion_rol}
+Responde SOLO en JSON con este formato exacto:
+{{"summary": "resumen de 2-3 líneas orientado al rol '{persona}'", "entities": "lista de entidades clave separadas por comas: partes involucradas, montos, fechas relevantes"}}
 
 Texto del contrato:
 {context}"""
             }],
             response_format={"type": "json_object"},
-            max_tokens=300,
+            max_tokens=350,
             temperature=0.1
         )
         import json
