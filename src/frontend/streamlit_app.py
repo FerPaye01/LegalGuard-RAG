@@ -22,6 +22,8 @@ from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
 from src.metrics import run_evaluation, eval_single_response
 from src.comparator import compare_contract_versions
+from src.chat_history import save_chat_session, load_chat_session, list_chat_sessions, delete_chat_session
+import uuid
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -650,7 +652,59 @@ with st.sidebar:
     if st.button("🗑️ Limpiar Memoria Completa", use_container_width=True):
         st.session_state.messages = []
         st.session_state.md_content = None
+        st.session_state.pop("cosmos_session_id", None)
         st.rerun()
+
+    st.divider()
+    
+    # --- PANEL DE HISTORIAL EN LA NUBE (Cosmos DB) ---
+    st.subheader("☁️ Historial en la Nube")
+    
+    # Inicializar ID de sesión si no existe
+    if "cosmos_session_id" not in st.session_state:
+        st.session_state.cosmos_session_id = str(uuid.uuid4())[:8]
+    
+    st.caption(f"📌 Sesión actual: `{st.session_state.cosmos_session_id}`")
+    
+    col_save, col_new = st.columns(2)
+    with col_save:
+        if st.button("💾 Guardar", use_container_width=True):
+            persona = st.session_state.get("selected_persona", "Orchestrator")
+            success = save_chat_session(st.session_state.cosmos_session_id, st.session_state.messages, persona)
+            if success:
+                st.toast("✅ Sesión guardada en Azure Cosmos DB")
+            else:
+                st.toast("⚠️ No se pudo guardar (revisa COSMOS_CONNECTION_STRING)")
+    with col_new:
+        if st.button("🆕 Nueva", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.cosmos_session_id = str(uuid.uuid4())[:8]
+            st.rerun()
+    
+    # Listar sesiones guardadas
+    with st.expander("📂 Sesiones anteriores", expanded=False):
+        sessions = list_chat_sessions(max_sessions=5)
+        if sessions:
+            for sess in sessions:
+                s_id = sess.get("session_id", "?")
+                s_msgs = sess.get("message_count", 0)
+                s_persona = sess.get("persona", "")
+                s_date = sess.get("updated_at", "")[:16]
+                col_info, col_load, col_del = st.columns([4, 1.5, 1.5])
+                col_info.markdown(f"**{s_id}** · {s_msgs} msgs · 🎭 {s_persona}\n\n_{s_date}_")
+                if col_load.button("📂", key=f"load_{s_id}", help="Cargar sesión"):
+                    loaded = load_chat_session(s_id)
+                    if loaded:
+                        st.session_state.messages = loaded.get("messages", [])
+                        st.session_state.cosmos_session_id = s_id
+                        st.toast(f"📂 Sesión {s_id} restaurada")
+                        st.rerun()
+                if col_del.button("🗑️", key=f"del_{s_id}", help="Eliminar sesión"):
+                    delete_chat_session(s_id)
+                    st.toast(f"🗑️ Sesión {s_id} eliminada")
+                    st.rerun()
+        else:
+            st.info("Sin sesiones guardadas aún.")
 
 # 8. Main Layout (Opción B: 50/50)
 col_pdf, col_chat = st.columns([5, 5])
@@ -992,6 +1046,10 @@ with col_chat:
                         "telemetry": telemetry,
                         "audit_score": audit_score
                     })
+                    
+                    # --- AUTO-GUARDADO EN COSMOS DB (Hito 16) ---
+                    persona_save = st.session_state.get("selected_persona", "Orchestrator")
+                    save_chat_session(st.session_state.get("cosmos_session_id", "default"), st.session_state.messages, persona_save)
         else:
             st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
 
