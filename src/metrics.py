@@ -98,9 +98,44 @@ def run_evaluation(max_samples=5):
             json.dump(json_results, f, indent=2, ensure_ascii=False)
             
         return json_results
+    
     except Exception as e:
-        log_error("Fallo crítico en evaluación RAGAS", e)
+        log_error("Error durante evaluación RAGAS", e)
         return {"error": str(e)}
+
+
+# Evaluación Lite: Una sola respuesta (para modo Real-Time)
+def eval_single_response(question: str, answer: str, contexts: list) -> dict:
+    """Evalúa la fidelidad y relevancia de UNA sola respuesta del RAG."""
+    log_sequence("RAGAS Lite", "Evaluando fidelidad de respuesta individual")
+    
+    if not question or not answer:
+        return {"faithfulness": 0.0, "answer_relevancy": 0.0, "status": "incomplete"}
+    
+    samples = [{
+        "question": question,
+        "answer": answer,
+        "contexts": contexts or ["No context found"]
+    }]
+    
+    dataset = Dataset.from_list(samples)
+    llm, embeddings = get_ragas_judges()
+    
+    try:
+        result = evaluate(
+            dataset=dataset,
+            metrics=[faithfulness, answer_relevancy],
+            llm=llm,
+            embeddings=embeddings
+        )
+        
+        scores = {k: float(v) for k, v in result.items()}
+        scores["status"] = "ok"
+        log_info(f"RAGAS Lite: Faithfulness={scores.get('faithfulness', 0):.2%}")
+        return scores
+    except Exception as e:
+        log_warn(f"RAGAS Lite falló: {e}")
+        return {"faithfulness": 0.0, "answer_relevancy": 0.0, "status": f"error: {str(e)[:50]}"}
 
 if __name__ == "__main__":
     results = run_evaluation()

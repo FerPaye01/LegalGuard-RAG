@@ -20,7 +20,7 @@ from src.ingestion.pipeline import (
 )
 from src.agent import LegalGuardAgent
 from src.risk_scanner import scan_contract
-from src.metrics import run_evaluation
+from src.metrics import run_evaluation, eval_single_response
 
 # --- Utilidad de Sincronización Cloud (Opción B) ---
 def upload_to_blob(file_bytes, file_name):
@@ -557,6 +557,22 @@ with st.sidebar:
 
     st.divider()
     
+    # --- SWITCH DE AUDITORÍA HÍBRIDO ---
+    st.subheader("🛡️ Modo de Vigilancia")
+    realtime_audit = st.toggle(
+        "Vigilancia en Tiempo Real",
+        value=st.session_state.get("realtime_audit", False),
+        help="ON: Cada respuesta se audita automáticamente con RAGAS. OFF: Botón manual '❓' debajo de cada respuesta."
+    )
+    st.session_state.realtime_audit = realtime_audit
+    
+    if realtime_audit:
+        st.caption("🟢 Modo Activo: Cada respuesta será verificada por el Juez IA.")
+    else:
+        st.caption("⚪ Modo Manual: Usa el botón ❓ para auditar respuestas individuales.")
+
+    st.divider()
+    
     # Documento actual
     if st.session_state.md_content:
         st.info(f"📄 Documento activo: {st.session_state.get('pdf_name', 'Contrato')}")
@@ -714,6 +730,28 @@ with col_chat:
         
         # --- Historial de Chat con Acordeón Comprimido ---
         mensajes = st.session_state.messages
+        
+        # Función helper para mostrar badges de auditoría
+        def render_audit_badge(msg, msg_idx):
+            """Muestra el badge de auditoría o botón manual según el modo."""
+            score = msg.get("audit_score")
+            
+            if score and score.get("status") == "ok":
+                f_val = score.get("faithfulness", 0)
+                r_val = score.get("answer_relevancy", 0)
+                badge = "✅" if f_val > 0.8 else ("⚠️" if f_val > 0.5 else "🚨")
+                st.caption(f"{badge} Fidelidad: {f_val:.0%} | Relevancia: {r_val:.0%}")
+            elif not st.session_state.get("realtime_audit", False) and msg.get("documents"):
+                if st.button("❓ Auditar esta respuesta", key=f"audit_btn_{msg_idx}"):
+                    with st.spinner("🛡️ Juez IA verificando..."):
+                        contexts = [d["content"] for d in msg["documents"] if d.get("content")]
+                        # Buscar la pregunta anterior
+                        q_idx = msg_idx - 1
+                        question = mensajes[q_idx]["content"] if q_idx >= 0 else "N/A"
+                        result_audit = eval_single_response(question, msg["content"], contexts)
+                        msg["audit_score"] = result_audit
+                        st.rerun()
+        
         if len(mensajes) > 2:
             historial = mensajes[:-2]
             ultima_interaccion = mensajes[-2:]
@@ -721,31 +759,37 @@ with col_chat:
             with st.expander(f"📖 Historial ({len(historial)//2 if len(historial) >= 2 else len(historial)} interaccion/es anteriores)", expanded=False):
                 for i in range(0, len(historial) - 1, 2):
                     user_msg = historial[i]["content"]
-                    ai_msg = historial[i+1]["content"] if i+1 < len(historial) else ""
+                    ai_msg = historial[i+1]
                     with st.expander(f"🗣️ {user_msg[:60]}{'...' if len(user_msg) > 60 else ''}"):
-                        st.markdown(ai_msg, unsafe_allow_html=True)
+                        st.markdown(ai_msg["content"], unsafe_allow_html=True)
+                        render_audit_badge(ai_msg, i+1)
             
             # Mostrar última interacción completa
             with st.chat_message(ultima_interaccion[0]["role"]):
                 st.markdown(ultima_interaccion[0]["content"])
             if len(ultima_interaccion) > 1:
-                with st.chat_message(ultima_interaccion[1]["role"]):
-                    st.markdown(ultima_interaccion[1]["content"], unsafe_allow_html=True)
-                    if "documents" in ultima_interaccion[1]:
+                last_msg = ultima_interaccion[1]
+                last_idx = len(mensajes) - 1
+                with st.chat_message(last_msg["role"]):
+                    st.markdown(last_msg["content"], unsafe_allow_html=True)
+                    render_audit_badge(last_msg, last_idx)
+                    if "documents" in last_msg:
                         with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                            for i, doc in enumerate(ultima_interaccion[1]["documents"]):
+                            for i, doc in enumerate(last_msg["documents"]):
                                 st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
                                 st.info(doc["content"])
         else:
             # Menos de 2 mensajes: mostrar normalmente
-            for msg in mensajes:
+            for idx, msg in enumerate(mensajes):
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"], unsafe_allow_html=True)
-                    if msg["role"] == "assistant" and "documents" in msg:
-                        with st.expander("🔍 Ver fragmentos originales y fuentes"):
-                            for i, doc in enumerate(msg["documents"]):
-                                st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
-                                st.info(doc["content"])
+                    if msg["role"] == "assistant":
+                        render_audit_badge(msg, idx)
+                        if "documents" in msg:
+                            with st.expander("🔍 Ver fragmentos originales y fuentes"):
+                                for i, doc in enumerate(msg["documents"]):
+                                    st.markdown(f"**Fragmento {i+1} - {doc['source_file']}**")
+                                    st.info(doc["content"])
 
         # Habilitar chat si hay contenido subido O si hay docs seleccionados en el filtro
         if st.session_state.md_content or selected_docs:
@@ -780,6 +824,23 @@ with col_chat:
                     
                     st.markdown(final_text, unsafe_allow_html=True)
                     
+                    # --- AUDITORÍA HÍBRIDA: Modo Real-Time ---
+                    audit_score = None
+                    if st.session_state.get("realtime_audit", False) and docs:
+                        with st.spinner("🛡️ Juez IA verificando fidelidad..."):
+                            contexts = [d["content"] for d in docs if d.get("content")]
+                            audit_score = eval_single_response(prompt, final_text, contexts)
+                        
+                        f_val = audit_score.get("faithfulness", 0)
+                        r_val = audit_score.get("answer_relevancy", 0)
+                        
+                        if f_val > 0.8:
+                            st.success(f"✅ Verificado: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
+                        elif f_val > 0.5:
+                            st.warning(f"⚠️ Precaución: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
+                        else:
+                            st.error(f"🚨 Riesgo: Faithfulness {f_val:.0%} | Relevancy {r_val:.0%}")
+                    
                     # --- TELEMETRÍA INLINE (Mini-barra de latencia por nodo) ---
                     telemetry = result.get("telemetry", {})
                     nodes = telemetry.get("nodes", {})
@@ -805,7 +866,8 @@ with col_chat:
                         "role": "assistant", 
                         "content": final_text,
                         "documents": docs,
-                        "telemetry": telemetry
+                        "telemetry": telemetry,
+                        "audit_score": audit_score
                     })
         else:
             st.info("⬅️ Sube un PDF o selecciona documentos en el **Filtro de Memoria** para comenzar.")
