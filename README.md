@@ -649,21 +649,60 @@ A partir de este hito, el flujo de actualización es automático:
 
 ## 🚀 Hito 7: Document Selector Pro (Gestión Documental Avanzada)
 
-Se transformó el selector de documentos en una herramienta de grado empresarial con una experiencia de usuario superior.
+Se transformó el selector de documentos en una herramienta de grado empresarial con una experiencia de usuario superior basada en una arquitectura de 4 capas.
 
-- **Interfaz Interactiva**: Implementación de un modal emergente (`st.dialog`) con pestañas para organizar documentos por fecha ("Recientes") y por categorías ("Base de Conocimiento").
-- **Enriquecimiento Automático**: Durante la ingesta, se utiliza GPT-4o-mini para generar automáticamente ricas descripciones de 3 líneas y etiquetas de entidades clave que se almacenan en el índice de Azure Search.
-- **Previsualización Nativa**: Botón de "ojo" inyectado en cada tarjeta de documento que genera un **SAS Token** temporal de Azure Blob Storage para permitir la lectura del PDF original en una pestaña segura.
+### 🏗️ Arquitectura de 4 Capas (Código Representativo)
+
+| Capa | Componente | Función Técnica |
+| :--- | :--- | :--- |
+| **Capa 1: Esquema** | `src/ingestion/pipeline.py` | Definición de campos `upload_date`, `doc_summary` y `doc_entities` en Azure AI Search. |
+| **Capa 2: Ingesta** | `generate_doc_metadata(text)` | Procesamiento LLM (GPT-4o-mini) para extraer resúmenes y entidades clave en tiempo real. |
+| **Capa 3: Acceso** | `get_blob_sas_url(filename)` | Generación dinámica de URLs firmadas (SAS Tokens) con expiración para seguridad. |
+| **Capa 4: UI** | `st.dialog()` | Interfaz modal con pestañas ("Recientes" / "Base") y tarjetas premium de documentos. |
+
+### 🔄 Flujo de Selección Completo
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant UI as Streamlit UI
+    participant Search as Azure Search
+    participant Blob as Azure Blob
+
+    U->>UI: Click "🗂️ Gestionar Documentos"
+    UI->>Search: Busca todos los docs + metadatos enriquecidos
+    Search-->>UI: Lista de documentos (Resumen + Entidades)
+    UI->>U: Modal con 2 Tabs (Recientes / Base de Conocimiento)
+    U->>UI: Selecciona documentos
+    U->>Blob: Click 👁️ → get_blob_sas_url() → Previsualización
+    U->>UI: Click "Usar seleccionados"
+    UI->>UI: Actualiza st.session_state.selected_docs
+    UI-->>U: Chat habilitado con contexto blindado
+```
 
 ---
 
-## 🏗️ Hito 8: Mesa de Trabajo (Split-screen XAI)
+## 🏗️ Hito 8: Mesa de Trabajo (Split-screen XAI / Workspace)
 
-Implementación de la interfaz de "Auditoría en Paralelo" para reducir la carga cognitiva del usuario.
+Implementación de la interfaz de "Auditoría en Paralelo" para reducir la carga cognitiva mediante una mesa de trabajo dinámica.
 
-- **Diseño Dual**: Vista dividida 40% (Visor) / 60% (Chat) que permite ver el contrato y la interpretación de la IA simultáneamente.
-- **Filtro de Memoria Dinámico**: Capacidad de acotar el contexto del agente a documentos específicos seleccionados desde el modal de gestión.
-- **Premium UX**: Uso de contenedores con scroll interno, tipografía *Inter* y badges de estado para una navegación fluida.
+### 🛠️ Desglose de Implementación
+
+- **Capa 1: Layout Side-by-Side**: Uso de `st.columns([5, 5])` o `[4, 6]` para una visualización equilibrada del PDF y el Chat.
+- **Capa 2: Lógica de Filtro**: El Agente RAG recibe una lista de `doc_ids` filtrados, asegurando que la respuesta se base **solo** en los documentos seleccionados en la mesa de trabajo.
+- **Capa 3: Sincronización de Citas (Scroll Sync)**: Al hacer clic en una cita del chat, el sistema inyecta una señal al visor lateral para saltar al fragmento exacto del documento.
+- **Capa 4: Estética Premium**: Implementación de clases CSS como `.legal-document-card` para tarjetas con efectos de hover y sombras suaves.
+
+### 📐 Diagrama de Mesa de Trabajo
+
+```mermaid
+flowchart LR
+    A[Selector de Mesa] -->|Define Contexto| B(Agente LangGraph)
+    B -->|Genera Respuesta| C[Chat Interactivo]
+    C -->|Click en Cita| D{Sincronización}
+    D -->|Scroll Automático| E[Visor PDF Lateral]
+    E -->|Previsualiza| F[Fragmento Exacto]
+```
 
 ---
 
