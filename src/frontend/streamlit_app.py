@@ -986,26 +986,34 @@ with col_chat:
         st.markdown('<h1 class="main-header">Centro de Calidad & Trazabilidad</h1>', unsafe_allow_html=True)
         eval_data = cargar_ultima_evaluacion()
         scores = eval_data.get("scores", {})
-        is_benchmark = eval_data.get("is_benchmark", False)
+        total_samples = eval_data.get("total_samples", 0)
         
-        m1, m2 = st.columns(2)
-        def render_metric_card(col, label, val, desc):
-            val_str = f"{val:.0%}"
-            cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
-            with col:
-                st.markdown(f'<div class="metric-card"><div style="font-size: 0.85rem; color: #64748B;">{label}</div><div style="font-size: 1.8rem; font-weight: 700; color: {cbar};">{val_str}</div><div style="font-size: 0.75rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
-        
-        render_metric_card(m1, "Fidelidad (Faithfulness)", scores.get("faithfulness", 0), "Alineación factual con las bases documentales.")
-        render_metric_card(m2, "Relevancia (Answer Relevancy)", scores.get("answer_relevancy", 0), "Relación directa entre la pregunta y la respuesta.")
-        
-        with st.expander("📖 ¿Cómo interpretar estos porcentajes?", expanded=False):
-            st.markdown(f"""
-            ### Razonamiento de Calidad LegalGuard
-            - **Fidelidad ({scores.get('faithfulness', 0):.0%})**: {'Excelente alineación. La IA no alucinó y usó estrictamente los fragmentos del contrato.' if scores.get('faithfulness', 0) > 0.8 else 'Atención: Algunos puntos de la respuesta no están explícitamente en los fragmentos recuperados.'}
-            - **Relevancia ({scores.get('answer_relevancy', 0):.0%})**: {'Respuesta directa y concisa a la duda del usuario.' if scores.get('answer_relevancy', 0) > 0.8 else 'La respuesta es correcta pero podría contener información irrelevante o ser demasiado extensa.'}
+        if total_samples == 0:
+            st.warning("📊 **Sistema de Calidad Listo**: Aún no se ha realizado ninguna auditoría en esta sesión. Haz clic en el botón inferior para que el Juez IA analice el historial.")
             
-            *Auditado automáticamente por Juez RAGAS (GPT-4o) bajo demanda.*
-            """)
+            # Mostrar tarjetas vacías o informativas en lugar de 0%
+            m1, m2 = st.columns(2)
+            with m1: st.markdown('<div class="metric-card"><div style="font-size: 0.85rem; color: #64748B;">Fidelidad</div><div style="font-size: 1.5rem; font-weight: 700; color: #94A3B8;">---</div><div style="font-size: 0.75rem; color: #94A3B8;">Pendiente de Auditoría</div></div>', unsafe_allow_html=True)
+            with m2: st.markdown('<div class="metric-card"><div style="font-size: 0.85rem; color: #64748B;">Relevancia</div><div style="font-size: 1.5rem; font-weight: 700; color: #94A3B8;">---</div><div style="font-size: 0.75rem; color: #94A3B8;">Pendiente de Auditoría</div></div>', unsafe_allow_html=True)
+        else:
+            m1, m2 = st.columns(2)
+            def render_metric_card(col, label, val, desc):
+                val_str = f"{val:.0%}"
+                cbar = "#10B981" if val >= 0.8 else ("#F59E0B" if val >= 0.6 else "#EF4444")
+                with col:
+                    st.markdown(f'<div class="metric-card"><div style="font-size: 0.85rem; color: #64748B;">{label}</div><div style="font-size: 1.8rem; font-weight: 700; color: {cbar};">{val_str}</div><div style="font-size: 0.75rem; color: #94A3B8;">{desc}</div></div>', unsafe_allow_html=True)
+            
+            render_metric_card(m1, "Fidelidad (Faithfulness)", scores.get("faithfulness", 0), "Alineación factual con las bases documentales.")
+            render_metric_card(m2, "Relevancia (Answer Relevancy)", scores.get("answer_relevancy", 0), "Relación directa entre la pregunta y la respuesta.")
+            
+            with st.expander("📖 ¿Cómo interpretar estos porcentajes?", expanded=False):
+                st.markdown(f"""
+                ### Razonamiento de Calidad LegalGuard
+                - **Fidelidad ({scores.get('faithfulness', 0):.0%})**: {'Excelente alineación. La IA no alucinó y usó estrictamente los fragmentos del contrato.' if scores.get('faithfulness', 0) > 0.8 else 'Atención: Algunos puntos de la respuesta no están explícitamente en los fragmentos.'}
+                - **Relevancia ({scores.get('answer_relevancy', 0):.0%})**: {'Respuesta directa y concisa a la duda del usuario.' if scores.get('answer_relevancy', 0) > 0.8 else 'La respuesta es correcta pero podría contener información irrelevante.'}
+                
+                *Auditado automáticamente por Juez RAGAS (GPT-4o) bajo demanda.*
+                """)
         
         st.divider()
         st.subheader("⚖️ Auditoría en Vivo (RAGAS)")
