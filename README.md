@@ -16,7 +16,9 @@
 > [!IMPORTANT]
 > **LegalGuard RAG en acción**: Mire nuestro video principal para ver el flujo completo de trabajo, desde la ingesta de documentos hasta la auditoría legal con IA Sensible.
 
-[Reproducir Video Demo (Local)](Video.mp4)
+- 📺 **[Ver Video en Google Drive](https://drive.google.com/file/d/17E07ieCWJ55c5dbSzrlrXZO6qBHgcvaP/view?usp=sharing)**
+- 📂 **[Carpeta de Recursos (Drive)](https://drive.google.com/drive/folders/1kU4lRNks0ex5Q3L76iq73BHu15nXS9g2?usp=sharing)**
+- 📼 **[Reproducir Video Local (mp4)](Video.mp4)**
 
 ---
 
