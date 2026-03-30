@@ -11,19 +11,69 @@
 
 ---
 
+## 🎥 Video Demostrativo (Principal)
+
+> [!IMPORTANT]
+> **LegalGuard RAG en acción**: Mire nuestro video principal para ver el flujo completo de trabajo, desde la ingesta de documentos hasta la auditoría legal con IA Sensible.
+
+[Reproducir Video Demo (Local)](Video.mp4)
+
+---
+
+## 🌐 Demo en vivo (Azure App Service)
+
+Accede a la plataforma directamente en el siguiente enlace:
+👉 **[legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net](https://legal-guard-rag-fvfnh6fhaqewc8c9.canadacentral-01.azurewebsites.net/)**
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+La arquitectura de LegalGuard RAG ha sido diseñada para ser robusta, escalable y segura, utilizando servicios nativos de Azure para garantizar el cumplimiento legal y la precisión técnica.
+
+```mermaid
+graph TD
+    User([User / Lawyer]) <--> Streamlit[Streamlit UI - Azure App Service]
+    
+    subgraph "Orchestration Layer (LangGraph)"
+        Streamlit <--> Agent[LegalGuard Agent]
+        Agent <--> Guard[Grader / Content Safety]
+        Agent <--> Tools[Legal Calculator / Risk Scanner]
+    end
+    
+    subgraph "Retrieval Layer (Hybrid RAG)"
+        Agent <--> Search[Azure AI Search - Hybrid RRF]
+        Search <--> Embed[Azure OpenAI - ada-002]
+    end
+    
+    subgraph "Data & Ingestion"
+        Streamlit --> Upload[Hot-Indexing]
+        Upload --> DocInt[Azure Document Intelligence]
+        DocInt --> VectorStore[Vectores HNSW]
+        Blob[Azure Blob Storage] <--> DocInt
+    end
+    
+    subgraph "Governance & Monitoring"
+        Agent --> Presidio[Microsoft Presidio - PII]
+        Agent --> RAGAS[RAGAS Assessment]
+        Agent --> AppIns[Azure Monitor / App Insights]
+    end
+```
+
+---
+
 ## 📋 Tabla de contenidos
 
 - [Sobre el proyecto](#-sobre-el-proyecto)
 - [Características principales](#-características-principales)
-- [Arquitectura Azure](#-arquitectura-azure)
-- [Servicios Azure utilizados](#-servicios-azure-utilizados)
-- [Datasets](#-datasets)
-- [Instalación](#-instalación)
-- [Uso](#-uso)
-- [Evaluación y métricas](#-evaluación-y-métricas)
-- [IA Responsable](#-ia-responsable)
-- [Equipo](#-equipo)
-- [Desafío del hackathon](#-desafío-del-hackathon)
+- [Arquitectura del Sistema](#-arquitectura-del-sistema)
+- [Galería de Capturas de Pantalla](#-galería-de-capturas-de-pantalla)
+- [Servicios Azure Utilizados](#-servicios-azure-utilizados)
+- [Datasets Utilizados](#-datasets-utilizados)
+- [Guía de Instalación](#-guía-de-instalación)
+- [Ejemplos de Uso](#-ejemplos-de-uso)
+- [Gobernanza e IA Responsable](#-gobernanza-e-ia-responsable)
+- [Equipo de Desarrollo](#-equipo-de-desarrollo)
 - [📈 Estado del Proyecto (status.md)](status.md)
 
 ---
@@ -33,8 +83,6 @@
 **Última actualización:** 2026-03-28
 El proyecto se encuentra en fase **Producción-Ready para el Microsoft Innovation Challenge**. Se han implementado optimizaciones de UX avanzadas como las "Signature Styles" por perfil, resaltado de citas dinámico con tooltips y auditoría RAGAS de latencia cero.
 
-> [!TIP]
-> Para ver un reporte técnico detallado del progreso, hitos y solución de errores comunes, consulta el archivo [status.md](status.md).
 
 ## 🎯 Sobre el proyecto
 
@@ -103,47 +151,29 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 
 ---
 
-## 🏗️ Arquitectura Azure
+---
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         USUARIO                                 │
-│              "¿Cuál es la cláusula de terminación?"             │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Azure App Service (Streamlit)                      │
-│         Interfaz web · Risk Scanner · Dashboard                 │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-┌─────────────┐  ┌──────────────┐  ┌──────────────────┐
-│  Azure AI   │  │  Azure OpenAI│  │  Azure AI        │
-│  Content    │  │  GPT-4o      │  │  Content Safety  │
-│  Search     │  │  Embeddings  │  │  (filtro I/O)    │
-│  (vectorial)│  │  ada-002     │  └──────────────────┘
-└─────────────┘  └──────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Azure Blob Storage                           │
-│         Contratos PDF · NDAs · SOPs · Logs JSON                 │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-          ┌──────────────┴──────────────┐
-          ▼                             ▼
-┌─────────────────┐          ┌──────────────────────┐
-│  Azure Document │          │  Azure Monitor +     │
-│  Intelligence   │          │  Application Insights│
-│  (extrae PDFs)  │          │  (trazabilidad)      │
-└─────────────────┘          └──────────────────────┘
-```
+## 📸 Galería de Capturas de Pantalla
+
+A continuación se muestran algunas capturas de pantalla de la interfaz "God Mode" de LegalGuard RAG, destacando la mesa de trabajo dual y el análisis de riesgos.
+
+| Análisis Legal Automatizado | Mesa de Trabajo (Split-Screen) |
+|:---:|:---:|
+| ![Análisis](ScreenShots/Captura%20de%20pantalla%202026-03-30%20095534.png) | ![Mesa de Trabajo](ScreenShots/Captura%20de%20pantalla%202026-03-30%20095817.png) |
+| **Matriz de Análisis Detallada** | **Visor de Documentos con Referencias** |
+
+| Gestión Documental | Risk Scanner |
+|:---:|:---:|
+| ![Gestión](ScreenShots/Captura%20de%20pantalla%202026-03-30%20083942.png) | ![Risk](ScreenShots/Captura%20de%20pantalla%202026-03-30%20084003.png) |
+| **Explorador de Documentos Activos** | **Detección de Cláusulas Críticas** |
 
 ---
 
-## ☁️ Servicios Azure utilizados
+---
+
+---
+
+## ☁️ Servicios Azure Utilizados
 
 | Servicio | Propósito | Tier |
 |----------|-----------|------|
@@ -159,7 +189,9 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 
 ---
 
-## 📊 Datasets
+---
+
+## 📊 Datasets Utilizados
 
 | Dataset | Uso | Registros |
 |---------|-----|-----------|
@@ -172,7 +204,9 @@ LegalGuard RAG escanea automáticamente contratos legales, identifica los 41 tip
 
 ---
 
-## 🚀 Instalación
+---
+
+## 🚀 Guía de Instalación
 
 ### Prerrequisitos
 - Python 3.10+
@@ -349,7 +383,9 @@ Ver guía detallada en [deployment/README_AZURE.md](deployment/README_AZURE.md).
 ---
 
 
-## 💻 Uso
+---
+
+## 💻 Ejemplos de Uso
 
 ### Consulta sobre un contrato
 
@@ -465,7 +501,9 @@ Durante la presentación, se recomienda realizar una "Pregunta de Quiebre" para 
 
 ---
 
-## 🤝 IA Responsable
+---
+
+## 🛡️ Gobernanza e IA Responsable
 
 LegalGuard RAG implementa los principios de IA Responsable de Microsoft:
 
@@ -478,13 +516,17 @@ LegalGuard RAG implementa los principios de IA Responsable de Microsoft:
 
 ---
 
-## 👥 Equipo
+---
+
+## 👥 Equipo de Desarrollo
 
 | Nombre | Rol | Responsabilidad |
 |--------|-----|----------------|
 | **Estefany Paola Mamani Gutierrez** | Backend / RAG Engineer | Pipeline RAG, Azure AI Search, embeddings, Risk Scanner, RAGAS |
 | **Oscar Fernando Paye Cahui** | Frontend / Integration | Interfaz Streamlit, deploy Azure, presentación, video demo |
 
+
+---
 
 ## 📑 Trazabilidad de Logros Técnicos
 
